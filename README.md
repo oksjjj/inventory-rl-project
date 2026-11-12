@@ -1,7 +1,6 @@
 # 강화학습 재고 발주 프로젝트
 
-`gym-invmgmt` 원본 환경으로 재고 발주 시뮬레이션을 돌릴 수 있는 1단계 구성입니다.  
-지금은 학습 코드를 넣지 않았고, 원본 파일을 가져와 환경을 설치한 뒤 예제를 실행할 수 있게만 맞춰 두었습니다.
+`gym-invmgmt` 원본 환경에서 Serial-v0로 재고 발주를 학습하고, 고정 발주·재고 수준 정책과 같은 지표로 비교합니다.
 
 ## 원본과 이 프로젝트에서 추가한 것
 
@@ -29,6 +28,11 @@
 | `requirements.txt` | 원본 패키지를 editable로 설치하고 의존성 버전을 고정 |
 | `vendor/SOURCE.md` | 가져온 태그, 커밋, 제외한 원본 항목 |
 | `.gitignore` | 가상환경과 캐시 제외 |
+| `src/inventory_rl/` | 학습·기준선·평가 코드 |
+| `scripts/train_reinforce.py` | REINFORCE 학습 |
+| `scripts/compare_policies.py` | 고정 발주·재고 수준·학습 정책 비교 |
+| `docs/rl_comparison.md` | 방법과 비교 결과 설명 |
+| `docs/file_structure.md` | 파일 사이 호출 관계 |
 | `README.md` | 이 파일 |
 
 원본에서 시뮬레이션에 필요 없어 가져오지 않은 항목은 `vendor/SOURCE.md`에 적어 두었습니다. CI, 문서, 테스트, 학습/벤치마크 예제는 포함하지 않았습니다.
@@ -120,3 +124,31 @@ python scripts/walk_serial_steps.py --steps 3 --order 20 --seed 42
 ```
 
 `reset`과 `step(action)`의 원본 반환값을 노트북에서 보려면 `notebooks/inspect_env_interface.ipynb`를 열고 커널을 `.venv`로 고른 뒤 위에서부터 실행합니다. `ACTION` 숫자만 바꾸고 `step` 셀을 다시 실행하면 됩니다.
+
+## 학습과 비교
+
+학습 정책은 REINFORCE + 가치 기준선 하나입니다. 고정 발주·재고 수준과 같은 지표로 비교합니다. 자세한 설명은 [`docs/rl_comparison.md`](docs/rl_comparison.md)에 있습니다.
+
+```bash
+source .venv/bin/activate
+python scripts/train_reinforce.py --demand trend_shock --episodes 3000
+python scripts/compare_policies.py --demand trend_shock
+```
+
+정상 수요로 보려면 `--demand stationary`를 쓰면 됩니다. 비교 지표는 누적 이익, 충족률, 미충족, 평균 재고, sentiment입니다.
+
+급변 수요 (`trend+shock` + goodwill), 평가 에피소드 20개(시드 1000부터):
+
+| 정책 | 누적 이익 | 충족률 | 미충족 | 평균 재고 | sentiment |
+|---|---|---|---|---|---|
+| 고정 발주 20 | 724.46 | 95.5% | 33.35 | 77.98 | 0.62 |
+| 재고 수준 (base-stock) | 805.10 | 89.8% | 64.80 | 26.93 | 0.60 |
+| 학습 정책 (REINFORCE) | 1659.64 | 94.4% | 82.21 | 117.97 | 1.06 |
+
+정상 수요 (`stationary` + goodwill):
+
+| 정책 | 누적 이익 | 충족률 | 미충족 | 평균 재고 | sentiment |
+|---|---|---|---|---|---|
+| 고정 발주 20 | 714.48 | 99.8% | 1.25 | 83.35 | 0.97 |
+| 재고 수준 (base-stock) | 761.02 | 99.1% | 4.35 | 31.34 | 0.78 |
+| 학습 정책 (REINFORCE) | 934.90 | 99.9% | 0.90 | 58.60 | 1.10 |
