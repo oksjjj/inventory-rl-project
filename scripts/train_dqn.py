@@ -1,4 +1,6 @@
-"""이산 발주를 DQN으로 학습한다.
+"""이산 발주를 DQN으로 학습한다. (수업 7강)
+
+원본 발주는 연속이다. dqn_agent.ORDER_LEVELS 로 칸을 나눈 뒤 Q 를 학습한다.
 
 사용:
     python scripts/train_dqn.py

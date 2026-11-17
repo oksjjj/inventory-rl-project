@@ -1,7 +1,20 @@
-"""REINFORCE + 가치 기준선으로 발주량 전체를 학습한다.
+"""REINFORCE + 가치 기준선으로 발주량 전체를 학습한다. (수업 8강)
 
 표 Q[상태][행동]은 쓰지 않는다. 행동이 연속 발주량 3개라서
 신경망이 바로 발주 평균을 내고, 그 주변에서 가우시안으로 뽑아 쓴다.
+
+8강 슬라이드 17 (순수 REINFORCE):
+    θ ← θ + α ∇ log π(a_t | s_t) × G_t
+
+여기에 슬라이드 19 기준선을 더했다. V(s) 는 정책이 아니라 분산을 줄이는 값이다.
+    A_t = G_t − V(s_t)
+    θ ← θ + α ∇ log π(a_t | s_t) × A_t
+
+코드에서 손실에 마이너스를 붙이는 이유는 PyTorch 가 경사하강만 해서다.
+−log π × A 를 줄이면 log π × A 를 올리는 것과 같다.
+
+이 파일의 클래스 이름 ActorCritic 은 네트워크 구조 이름일 뿐이다.
+8강의 TD actor-critic(매 기간 δ_t)은 actor_critic_agent.py 이다.
 
 한 줄 요약:
     1) 관측을 보고 발주량 평균 μ, 표준편차 σ, 가치 V 를 낸다.
@@ -31,12 +44,13 @@ _INIT_ORDER_LOGIT = math.log(0.25 / 0.75)
 
 
 class ActorCritic(nn.Module):
-    """한 네트워크가 정책과 가치를 같이 낸다.
+    """REINFORCE 용 네트워크. 8강의 TD actor-critic 에이전트가 아니다.
 
     공통 층(backbone)을 통과한 뒤
-      mean_head  → 세 링크의 발주 평균
+      mean_head  → 세 링크의 발주 평균 (actor)
       value_head → “이 관측에서 앞으로 받을 보상” 예측 V(s)
-    로 갈라진다. V(s) 는 정책이 아니라 기준선이다.
+    로 갈라진다. V(s) 는 정책이 아니라 G_t 의 기준선이다.
+    매 기간 r + γV(s') 로 바꾸지 않는다. 그 구현은 ActorCriticAgent 이다.
     """
 
     def __init__(self, obs_dim: int, act_dim: int, hidden: int = 64, max_order: float = MAX_ORDER) -> None:

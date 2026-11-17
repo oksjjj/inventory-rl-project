@@ -5,7 +5,11 @@
 - **원본 시뮬레이터** `vendor/gym-invmgmt` — 가져온 파일을 수정하지 않는다.
 - **우리가 추가한 코드** `src/`, `scripts/`, `notebooks/`, `docs/` — 학습·비교·설명.
 
-학습 정책은 두 개다. REINFORCE는 연속 발주, DQN은 이산 발주 `{0, 20, 40, 60, 80}`이다.
+학습 정책은 세 개다.
+
+- REINFORCE: 연속 발주, 에피소드 수익 \(G_t\)
+- actor-critic: 연속 발주, 매 기간 TD 오차 \(\delta_t\)
+- DQN: 이산 발주 `{0, 20, 40, 60, 80}`
 
 ## 1. 폴더 한눈에
 
@@ -21,17 +25,18 @@ inventory-rl-project/
 └── README.md
 ```
 
-실행할 때 보는 파일만 고르면 아래 다섯 개다.
+실행할 때 보는 파일만 고르면 아래 여섯 개다.
 
 | 하고 싶은 일 | 실행 |
 |---|---|
 | 환경을 한 기간씩 보기 | `python scripts/walk_serial_steps.py` |
 | REINFORCE 학습 | `python scripts/train_reinforce.py` |
+| actor-critic 학습 | `python scripts/train_actor_critic.py` |
 | DQN 학습 | `python scripts/train_dqn.py` |
-| 네 정책 비교 | `python scripts/compare_policies.py` |
+| 다섯 정책 비교 | `python scripts/compare_policies.py` |
 | reset/step 노트북 | `notebooks/inspect_env_interface.ipynb` |
 
-방법·숫자 설명은 `docs/rl_comparison.md`, 이 파일은 **누가 누구를 호출하는지**만 적는다.
+누가 누구를 호출하는지는 아래 2–7절, 수업 식과 읽는 순서는 8–9절이다.
 
 ## 2. 원본과 우리 코드
 
@@ -52,6 +57,7 @@ flowchart TB
     env["src/inventory_rl/env.py"]
     walk["scripts/walk_serial_steps.py"]
     train_rf["scripts/train_reinforce.py"]
+    train_ac["scripts/train_actor_critic.py"]
     train_dqn["scripts/train_dqn.py"]
     cmp["scripts/compare_policies.py"]
   end
@@ -59,6 +65,7 @@ flowchart TB
   env -->|"gym.make Serial-v0"| init
   walk -->|"gym.make 직접"| init
   train_rf --> env
+  train_ac --> env
   train_dqn --> env
   cmp --> env
   cmp --> kpis
@@ -77,18 +84,19 @@ src/inventory_rl/
 ├── env.py                 환경 생성. 수요 설정, 발주 상한 80
 ├── obs.py                 관측 15칸을 나눠 신경망 입력으로
 ├── reinforce_agent.py     가우시안 정책 + REINFORCE 업데이트
+├── actor_critic_agent.py  가우시안 정책 + TD actor-critic 업데이트
 ├── dqn_agent.py           이산 발주 125칸 + DQN 업데이트
 ├── policies.py            고정 발주, 재고 수준 (학습 없음)
 ├── evaluate.py            에피소드 실행 + KPI 평균
-├── agent.py               ReinforceAgent, DQNAgent 를 다시 export
-└── __init__.py            ReinforceAgent, DQNAgent
+├── agent.py               학습 에이전트를 다시 export
+└── __init__.py            ReinforceAgent, ActorCriticAgent, DQNAgent
 
 scripts/
 ├── walk_serial_steps.py   환경 설명. inventory_rl 을 거치지 않음
 ├── train_reinforce.py     REINFORCE 학습 진입점
+├── train_actor_critic.py  TD actor-critic 학습 진입점
 ├── train_dqn.py           DQN 학습 진입점
-├── compare_policies.py    비교 진입점
-└── train_actor_critic.py  예전 이름. train_reinforce 로 연결
+└── compare_policies.py    비교 진입점
 
 notebooks/inspect_env_interface.ipynb
 docs/rl_comparison.md
@@ -102,13 +110,14 @@ docs/file_structure.md     이 파일
 ```mermaid
 flowchart TB
   train_rf["scripts/train_reinforce.py"]
+  train_ac["scripts/train_actor_critic.py"]
   train_dqn["scripts/train_dqn.py"]
   cmp["scripts/compare_policies.py"]
-  alias["scripts/train_actor_critic.py"]
   walk["scripts/walk_serial_steps.py"]
   nb["notebooks/inspect_env_interface.ipynb"]
 
   rf["reinforce_agent.py"]
+  ac["actor_critic_agent.py"]
   dqn["dqn_agent.py"]
   pol["policies.py"]
   ev["evaluate.py"]
@@ -118,12 +127,14 @@ flowchart TB
 
   gym["vendor: gym_invmgmt"]
 
-  alias --> train_rf
   train_rf --> rf
   train_rf --> env
+  train_ac --> ac
+  train_ac --> env
   train_dqn --> dqn
   train_dqn --> env
   cmp --> rf
+  cmp --> ac
   cmp --> dqn
   cmp --> pol
   cmp --> ev
@@ -132,10 +143,13 @@ flowchart TB
   ev -->|"compute_kpis"| gym
   rf --> env
   rf --> obs
+  ac --> env
+  ac --> obs
   dqn --> env
   dqn --> obs
   pol --> env
   agent --> rf
+  agent --> ac
   agent --> dqn
   env -->|"gym.make"| gym
   walk -->|"gym.make 직접"| gym
@@ -145,11 +159,12 @@ flowchart TB
 한 줄로 말하면:
 
 - **REINFORCE 학습**은 `train_reinforce.py` → `ReinforceAgent` + `make_serial_env`
+- **actor-critic 학습**은 `train_actor_critic.py` → `ActorCriticAgent` + `make_serial_env`
 - **DQN 학습**은 `train_dqn.py` → `DQNAgent` + `make_serial_env`
-- **비교**는 `compare_policies.py` → 고정 발주·재고 수준·REINFORCE·DQN + `evaluate_policy`
+- **비교**는 `compare_policies.py` → 고정 발주·재고 수준·REINFORCE·actor-critic·DQN + `evaluate_policy`
 - **설명**은 `walk_serial_steps.py` / 노트북이 원본 `gym.make`를 직접 호출한다. `src/inventory_rl` 을 거치지 않는다.
 
-`agent.py` 는 다른 스크립트가 쓰지 않는다. `from inventory_rl.agent import ReinforceAgent, DQNAgent` 를 쓰고 싶을 때 있는 별칭이다.
+`agent.py` 는 다른 스크립트가 쓰지 않는다. `from inventory_rl.agent import ...` 를 쓰고 싶을 때 있는 별칭이다.
 
 체크포인트가 없으면 비교 스크립트는 그 학습 정책만 빼고 나머지를 출력한다.
 
@@ -162,13 +177,28 @@ make_serial_env()
     → ReinforceAgent
         → 에피소드마다
               act_and_log(관측) → env.step(발주) 를 30기간
-              update_episode(...)          # 에피소드가 끝난 뒤에 한 번
+              update_episode(...)          # 에피소드가 끝난 뒤에 한 번, G_t − V(s)
     → outputs/.../reinforce.pt
     → outputs/.../reinforce_train_log.csv
     → outputs/.../reinforce_train_return.png
 ```
 
 `reinforce_agent.py` 가 `obs.scale_obs` 로 관측을 나눈 뒤 신경망에 넣는다.
+
+### 학습 `train_actor_critic.py`
+
+```text
+make_serial_env()
+    → ActorCriticAgent
+        → 매 기간
+              act_and_log(관측) → env.step(발주)
+              learn_step(...)              # δ = r + γV(s') − V(s)
+    → outputs/.../actor_critic.pt
+    → outputs/.../actor_critic_train_log.csv
+    → outputs/.../actor_critic_train_return.png
+```
+
+정책 네트워크 모양은 REINFORCE와 같다. 다른 점은 학습 시점이다. REINFORCE는 30기간이 끝난 뒤 \(G_t\), actor-critic은 매 기간 TD 오차다.
 
 ### 학습 `train_dqn.py`
 
@@ -188,17 +218,18 @@ make_serial_env()
 ### 비교 `compare_policies.py`
 
 ```text
-고정 발주           ConstantOrderPolicy.get_action
-재고 수준           BaseStockPolicy.get_action
-학습 정책(REINFORCE) ReinforceAgent.load(reinforce.pt) → get_action
-학습 정책(DQN)       DQNAgent.load(dqn.pt) → get_action
+고정 발주              ConstantOrderPolicy.get_action
+재고 수준              BaseStockPolicy.get_action
+학습 정책(REINFORCE)    ReinforceAgent.load(reinforce.pt) → get_action
+학습 정책(Actor-Critic) ActorCriticAgent.load(actor_critic.pt) → get_action
+학습 정책(DQN)          DQNAgent.load(dqn.pt) → get_action
         ↘
      evaluate_policy  (같은 시드, 같은 수요)
         → compute_kpis
         → outputs/.../policy_comparison.csv
 ```
 
-네 정책이 모두 `env.clip_order` 로 발주를 0~80에 맞춘다. DQN은 그 안에서 이산 칸만 고른다.
+다섯 정책이 모두 `env.clip_order` 로 발주를 0~80에 맞춘다. DQN은 그 안에서 이산 칸만 고른다.
 
 ### 환경 설명 `walk_serial_steps.py`
 
@@ -223,10 +254,13 @@ gym.make("GymInvMgmt/Serial-v0", demand_config=stationary)
 - `reinforce.pt` — REINFORCE 가중치
 - `reinforce_train_log.csv` — REINFORCE 에피소드별 보상·손실
 - `reinforce_train_return.png` — REINFORCE 학습 곡선
+- `actor_critic.pt` — actor-critic 가중치
+- `actor_critic_train_log.csv` — actor-critic 에피소드별 보상·손실
+- `actor_critic_train_return.png` — actor-critic 학습 곡선
 - `dqn.pt` — DQN 가중치
 - `dqn_train_log.csv` — DQN 에피소드별 보상·손실·ε
 - `dqn_train_return.png` — DQN 학습 곡선
-- `policy_comparison.csv` — 네 정책 KPI
+- `policy_comparison.csv` — 다섯 정책 KPI
 
 ## 7. 원본에서 열어볼 파일
 
@@ -239,3 +273,56 @@ gym.make("GymInvMgmt/Serial-v0", demand_config=stationary)
 | `vendor/gym-invmgmt/gym_invmgmt/utils.py` | `evaluate.py` 의 `compute_kpis` |
 
 토폴로지(노드, 리드타임)는 `network_topology.py` 와 Serial YAML이다. 재고 수준 정책이 그래프에서 `h`, `b`, `L` 을 읽을 때 쓰인다.
+
+## 8. 공부할 때 이 순서로 읽기
+
+원본 시뮬레이터를 먼저 고치지 말고, 우리가 추가한 파일만 위에서 아래로 보면 된다.
+
+1. `src/inventory_rl/env.py` — 환경 생성, 수요 두 종류, 발주 상한 80
+2. `src/inventory_rl/obs.py` — 관측 15칸 의미와 스케일
+3. `scripts/walk_serial_steps.py` 또는 노트북 — `reset`/`step` 한 기간
+4. `src/inventory_rl/policies.py` — 학습하지 않는 두 기준선
+5. `src/inventory_rl/dqn_agent.py` — 7강 value-based
+6. `src/inventory_rl/reinforce_agent.py` — 8강 REINFORCE + 기준선
+7. `src/inventory_rl/actor_critic_agent.py` — 8강 TD actor-critic
+8. `scripts/train_*.py` → `scripts/compare_policies.py` → `evaluate.py`
+
+스크립트는 모두 `sys.path.insert(0, ROOT/"src")` 를 해서 `import inventory_rl` 이 된다. `src.` 를 붙이지 않는다.
+
+### 이름 함정
+
+| 이름 | 실제 |
+|---|---|
+| `reinforce_agent.ActorCritic` | REINFORCE 네트워크. V 는 \(G_t\) 기준선 |
+| `actor_critic_agent.ActorCriticAgent` | 8강 TD actor-critic |
+| `actor_critic_agent.ActorCriticNet` | 그 에이전트의 네트워크 |
+| `scripts/train_actor_critic.py` | 예전엔 REINFORCE 별칭. 지금은 TD actor-critic 학습 |
+
+`agent.py` 는 별칭만 export 한다. 학습 스크립트는 각 파일을 직접 import 한다.
+
+## 9. 수업 식과 코드
+
+세 학습 정책이 같은 환경 `Serial-v0` 를 쓰고, 학습 신호만 다르다.
+
+| 수업 | 코드 | 행동 | 업데이트 |
+|---|---|---|---|
+| 7강 DQN | `dqn_agent.py` `learn()` | 이산 125칸 | \(y = r + \gamma \max_{a'} Q_{\theta^-}(s',a')\), MSE |
+| 8강 REINFORCE | `reinforce_agent.py` `update_episode()` | 연속 가우시안 | \(\nabla \log\pi \times (G_t - V(s))\) , 에피소드 끝 한 번 |
+| 8강 TD actor-critic | `actor_critic_agent.py` `learn_step()` | 연속 가우시안 | \(\delta = r + \gamma V(s') - V(s)\), 매 기간 |
+
+슬라이드에 없고 코드에 있는 것:
+
+- 발주 이산화 `{0,20,40,60,80}` — DQN을 쓰기 위해 우리가 자른 것
+- 보상 / 50 — 손실 스케일
+- entropy 항 — REINFORCE·actor-critic 이 한 값에 고정되지 않게
+- actor-critic 의 backbone 공유 — 슬라이드는 \(\theta\) 와 \(w\) 를 따로 둠
+- Q actor-critic, \(Q-V\) advantage 버전은 없음
+
+구현하지 않은 8강 식:
+
+```text
+Q Actor-Critic        ∇ log π × Q_w(s, a)
+Advantage Actor-Critic ∇ log π × (Q − V)
+```
+
+지금 세 번째는 TD actor-critic \(\nabla \log\pi \times \delta_t\) 만 있다.

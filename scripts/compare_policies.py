@@ -1,4 +1,4 @@
-"""고정 발주, 재고 수준, REINFORCE, DQN을 같은 KPI로 비교한다.
+"""고정 발주, 재고 수준, REINFORCE, actor-critic, DQN을 같은 KPI로 비교한다.
 
 사용:
     python scripts/compare_policies.py
@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from inventory_rl.actor_critic_agent import ActorCriticAgent
 from inventory_rl.dqn_agent import DQNAgent
 from inventory_rl.env import demand_label, make_serial_env, output_dir_for_demand
 from inventory_rl.evaluate import evaluate_policy
@@ -28,6 +29,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--out-dir", type=str, default="")
     parser.add_argument("--checkpoint", type=str, default="")
     parser.add_argument("--dqn-checkpoint", type=str, default="")
+    parser.add_argument("--ac-checkpoint", type=str, default="")
     parser.add_argument("--eval-episodes", type=int, default=20)
     parser.add_argument("--eval-seed", type=int, default=1000)
     parser.add_argument("--constant-order", type=float, default=20.0)
@@ -38,7 +40,7 @@ def parse_args() -> argparse.Namespace:
 def print_table(rows: list[dict]) -> None:
     """터미널에 계획서 KPI를 맞춰 출력한다."""
     headers = [
-        ("name", "정책", 22),
+        ("name", "정책", 26),
         ("total_profit", "누적이익", 12),
         ("fill_rate", "충족률", 10),
         ("total_backlog", "미충족", 10),
@@ -94,6 +96,22 @@ def main() -> None:
     else:
         print(f"체크포인트가 없어 학습 정책은 비교에서 빠집니다: {checkpoint}")
         print(f"먼저 python scripts/train_reinforce.py --demand {args.demand} 를 실행하세요.")
+
+    ac_ckpt = ROOT / args.ac_checkpoint if args.ac_checkpoint else out_dir / "actor_critic.pt"
+    if ac_ckpt.exists():
+        ac_agent = ActorCriticAgent(obs_dim=obs_dim, act_dim=act_dim)
+        ac_agent.load(ac_ckpt)
+        policies.append(
+            (
+                "학습 정책(Actor-Critic)",
+                lambda obs, current_env, learned=ac_agent: learned.get_action(
+                    obs, current_env, deterministic=True
+                ),
+            )
+        )
+    else:
+        print(f"체크포인트가 없어 actor-critic은 비교에서 빠집니다: {ac_ckpt}")
+        print(f"먼저 python scripts/train_actor_critic.py --demand {args.demand} 를 실행하세요.")
 
     dqn_ckpt = ROOT / args.dqn_checkpoint if args.dqn_checkpoint else out_dir / "dqn.pt"
     if dqn_ckpt.exists():

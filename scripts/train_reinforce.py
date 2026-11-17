@@ -1,4 +1,7 @@
-"""발주량 전체를 REINFORCE + 기준선으로 학습한다.
+"""발주량 전체를 REINFORCE + 기준선으로 학습한다. (수업 8강)
+
+에피소드가 끝난 뒤에만 update_episode 를 호출한다. 매 기간 업데이트는
+train_actor_critic.py 이다.
 
 한 에피소드 흐름:
     reset → (관측 보고 발주 뽑기 → step → 보상 저장) × 30기간

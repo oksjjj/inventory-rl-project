@@ -1,4 +1,4 @@
-"""DQN으로 이산 발주를 학습한다.
+"""DQN으로 이산 발주를 학습한다. (수업 7강 슬라이드 14)
 
 환경 발주량은 연속이라 표 Q-learning을 그대로 쓸 수 없다.
 링크마다 발주를 {0, 20, 40, 60, 80} 다섯 칸으로 자르면
@@ -6,7 +6,16 @@
 
     Q(s, a) ≈ “관측 s에서 이산 발주 a를 고르면 앞으로 받을 보상”
 
-학습은 수업의 Q-learning과 같다. 표 대신 신경망이고, 경험 재생·타깃 네트워크를 쓴다.
+7강 DQN 절차와 코드 대응:
+    1) ε-greedy 로 a 선택          → select_index
+    2) (s, a, r, s') 를 버퍼에 저장 → ReplayBuffer
+    3) 고정 타깃 θ⁻ 로 y 계산      → target_q
+    4) MSE (y − Q(s,a;θ))²         → learn()
+
+    L(θ) = E[ ( r + γ max_{a'} Q(s', a'; θ⁻) − Q(s, a; θ) )² ]
+
+원본 환경은 연속 발주다. DQN을 쓰려고 이산 칸으로 바꾼 것이지,
+연속 행동 그대로 DQN을 돌린 것은 아니다. 보상/50 은 슬라이드에 없고 스케일용이다.
 """
 
 from __future__ import annotations
@@ -32,6 +41,7 @@ def n_discrete_actions(n_links: int) -> int:
 def index_to_order(index: int, n_links: int = 3) -> np.ndarray:
     """0..124 를 (링크0 발주, 링크1 발주, 링크2 발주) 로 바꾼다.
 
+    링크 순서 = 환경 행동 순서: (2,1) 소매, (3,2) 유통, (4,3) 공장.
     예: index=6 → 6=1 + 1×5 + 0×25 → (20, 20, 0)
     """
     orders = np.zeros(n_links, dtype=np.float64)
@@ -88,7 +98,11 @@ class ReplayBuffer:
 
 
 class QNetwork(nn.Module):
-    """관측 → 이산 행동 125개의 Q값."""
+    """관측 → 이산 행동 125개의 Q값.
+
+    7강 Atari 그림의 마지막 FC 가 행동마다 Q 하나를 내던 것과 같다.
+    여기 관측은 15차원 벡터라 CNN 대신 MLP 를 쓴다.
+    """
 
     def __init__(self, obs_dim: int, n_actions: int, hidden: int = 64) -> None:
         super().__init__()
@@ -105,6 +119,8 @@ class QNetwork(nn.Module):
 
 
 class DQNAgent:
+    """7강 value-based 제어. 정책은 Q 에서 입실론-그리디로 꺼낸다."""
+
     def __init__(
         self,
         obs_dim: int = 15,
