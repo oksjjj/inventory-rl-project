@@ -1,4 +1,4 @@
-"""고정 발주, 재고 수준, REINFORCE를 같은 KPI로 비교한다.
+"""고정 발주, 재고 수준, REINFORCE, DQN을 같은 KPI로 비교한다.
 
 사용:
     python scripts/compare_policies.py
@@ -15,6 +15,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
+from inventory_rl.dqn_agent import DQNAgent
 from inventory_rl.env import demand_label, make_serial_env, output_dir_for_demand
 from inventory_rl.evaluate import evaluate_policy
 from inventory_rl.policies import BaseStockPolicy, ConstantOrderPolicy
@@ -26,6 +27,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--demand", choices=["stationary", "trend_shock"], default="trend_shock")
     parser.add_argument("--out-dir", type=str, default="")
     parser.add_argument("--checkpoint", type=str, default="")
+    parser.add_argument("--dqn-checkpoint", type=str, default="")
     parser.add_argument("--eval-episodes", type=int, default=20)
     parser.add_argument("--eval-seed", type=int, default=1000)
     parser.add_argument("--constant-order", type=float, default=20.0)
@@ -92,6 +94,22 @@ def main() -> None:
     else:
         print(f"체크포인트가 없어 학습 정책은 비교에서 빠집니다: {checkpoint}")
         print(f"먼저 python scripts/train_reinforce.py --demand {args.demand} 를 실행하세요.")
+
+    dqn_ckpt = ROOT / args.dqn_checkpoint if args.dqn_checkpoint else out_dir / "dqn.pt"
+    if dqn_ckpt.exists():
+        dqn = DQNAgent(obs_dim=obs_dim, n_links=act_dim)
+        dqn.load(dqn_ckpt)
+        policies.append(
+            (
+                "학습 정책(DQN)",
+                lambda obs, current_env, learned=dqn: learned.get_action(
+                    obs, current_env, deterministic=True
+                ),
+            )
+        )
+    else:
+        print(f"체크포인트가 없어 DQN은 비교에서 빠집니다: {dqn_ckpt}")
+        print(f"먼저 python scripts/train_dqn.py --demand {args.demand} 를 실행하세요.")
 
     env.close()
 
