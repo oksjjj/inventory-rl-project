@@ -7,8 +7,8 @@
 
 학습 정책은 세 개다.
 
-- REINFORCE: 연속 발주, 에피소드 수익 \(G_t\)
-- actor-critic: 연속 발주, 매 기간 TD 오차 \(\delta_t\)
+- REINFORCE: 연속 발주, 에피소드 수익 $G_t$
+- actor-critic: 연속 발주, 매 기간 TD 오차 $\delta_t$
 - DQN: 이산 발주 `{0, 20, 40, 60, 80}`
 
 ## 1. 폴더 한눈에
@@ -198,7 +198,7 @@ make_serial_env()
     → outputs/.../actor_critic_train_return.png
 ```
 
-정책 네트워크 모양은 REINFORCE와 같다. 다른 점은 학습 시점이다. REINFORCE는 30기간이 끝난 뒤 \(G_t\), actor-critic은 매 기간 TD 오차다.
+정책 네트워크 모양은 REINFORCE와 같다. 다른 점은 학습 시점이다. REINFORCE는 30기간이 끝난 뒤 $G_t$, actor-critic은 매 기간 TD 오차다.
 
 ### 학습 `train_dqn.py`
 
@@ -293,7 +293,7 @@ gym.make("GymInvMgmt/Serial-v0", demand_config=stationary)
 
 | 이름 | 실제 |
 |---|---|
-| `reinforce_agent.ActorCritic` | REINFORCE 네트워크. V 는 \(G_t\) 기준선 |
+| `reinforce_agent.ActorCritic` | REINFORCE 네트워크. V 는 $G_t$ 기준선 |
 | `actor_critic_agent.ActorCriticAgent` | 8강 TD actor-critic |
 | `actor_critic_agent.ActorCriticNet` | 그 에이전트의 네트워크 |
 | `scripts/train_actor_critic.py` | 예전엔 REINFORCE 별칭. 지금은 TD actor-critic 학습 |
@@ -306,17 +306,17 @@ gym.make("GymInvMgmt/Serial-v0", demand_config=stationary)
 
 | 수업 | 코드 | 행동 | 업데이트 |
 |---|---|---|---|
-| 7강 DQN | `dqn_agent.py` `learn()` | 이산 125칸 | \(y = r + \gamma \max_{a'} Q_{\theta^-}(s',a')\), MSE |
-| 8강 REINFORCE | `reinforce_agent.py` `update_episode()` | 연속 가우시안 | \(\nabla \log\pi \times (G_t - V(s))\) , 에피소드 끝 한 번 |
-| 8강 TD actor-critic | `actor_critic_agent.py` `learn_step()` | 연속 가우시안 | \(\delta = r + \gamma V(s') - V(s)\), 매 기간 |
+| 7강 DQN | `dqn_agent.py` `learn()` | 이산 125칸 | $y = r + \gamma \max_{a'} Q_{\theta^-}(s',a')$, MSE |
+| 8강 REINFORCE | `reinforce_agent.py` `update_episode()` | 연속 가우시안 | $\nabla \log\pi \times (G_t - V(s))$, 에피소드 끝 한 번 |
+| 8강 TD actor-critic | `actor_critic_agent.py` `learn_step()` | 연속 가우시안 | $\delta = r + \gamma V(s') - V(s)$, 매 기간 |
 
 슬라이드에 없고 코드에 있는 것:
 
 - 발주 이산화 `{0,20,40,60,80}` — DQN을 쓰기 위해 우리가 자른 것
 - 보상 / 50 — 손실 스케일
 - entropy 항 — REINFORCE·actor-critic 이 한 값에 고정되지 않게
-- actor-critic 의 backbone 공유 — 슬라이드는 \(\theta\) 와 \(w\) 를 따로 둠
-- Q actor-critic, \(Q-V\) advantage 버전은 없음
+- actor-critic 의 backbone 공유 — 슬라이드는 $\theta$ 와 $w$ 를 따로 둠
+- Q actor-critic, $Q-V$ advantage 버전은 없음
 
 구현하지 않은 8강 식:
 
@@ -325,4 +325,4 @@ Q Actor-Critic        ∇ log π × Q_w(s, a)
 Advantage Actor-Critic ∇ log π × (Q − V)
 ```
 
-지금 세 번째는 TD actor-critic \(\nabla \log\pi \times \delta_t\) 만 있다.
+지금 세 번째는 TD actor-critic $\nabla \log\pi \times \delta_t$ 만 있다.

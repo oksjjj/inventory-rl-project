@@ -5,8 +5,8 @@
 학습 정책은 세 개다. 파일·호출 관계와 수업 식 대응은 [`docs/file_structure.md`](file_structure.md) 를 본다.
 
 - DQN: 7강, 이산 발주 `{0,20,40,60,80}`
-- REINFORCE + \(V(s)\) 기준선: 8강, 연속 발주, 에피소드 수익 \(G_t\)
-- TD actor-critic: 8강, 연속 발주, 매 기간 \(\delta_t\)
+- REINFORCE + $V(s)$ 기준선: 8강, 연속 발주, 에피소드 수익 $G_t$
+- TD actor-critic: 8강, 연속 발주, 매 기간 $\delta_t$
 
 아래 표의 “학습 정책 하나” 서술은 예전 초안이다. 현재 비교는 `scripts/compare_policies.py` 가 다섯 줄(고정·재고 수준·REINFORCE·actor-critic·DQN)을 출력한다.
 
