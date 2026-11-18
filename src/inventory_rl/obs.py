@@ -1,6 +1,6 @@
-"""신경망에 넣기 전에 관측 크기를 맞춘다.
+"""신경망에 넣기 전에 관측 15칸을 정규화한다.
 
-Serial-v0 관측은 원본 CoreEnv 가 만드는 15칸이다. 순서는 아래와 같다.
+Serial-v0 원본 관측은 CoreEnv 가 만드는 15칸이다. 순서는 아래와 같다.
 
     [0]      직전 기간 수요 D
     [1]      미충족(백로그) U
@@ -11,15 +11,16 @@ Serial-v0 관측은 원본 CoreEnv 가 만드는 15칸이다. 순서는 아래�
     [14]     sentiment (goodwill 배율, 보통 0.2~2)
 
 칸마다 숫자 크기가 다르다. 재고 200과 수요 20을 그대로 넣으면
-신경망이 재고만 보고 수요를 거의 무시한다. 그래서 칸마다 나눠
-대략 0~1 근처로 맞춘다.
+신경망이 재고만 보고 수요를 거의 무시한다.
+OBS_SCALE 로 칸마다 나눠 대략 0~1 근처로 정규화한다.
 """
 
 from __future__ import annotations
 
 import numpy as np
 
-# 위 15칸 각각을 나누는 값. 파이프라인은 발주량 스케일(80), t 는 에피소드 길이 30.
+# 정규화 나누기. 원본 관측 / OBS_SCALE 이면 대략 0~1.
+# 80 = 발주 상한 MAX_ORDER, 100·200 = 시작 재고 I0, 30 = 에피소드 길이.
 OBS_SCALE = np.array(
     [
         80.0,  # [0] 수요
@@ -37,6 +38,6 @@ OBS_SCALE = np.array(
 
 
 def scale_obs(obs: np.ndarray) -> np.ndarray:
-    """관측 벡터를 OBS_SCALE 로 나눈다. 길이가 짧으면 앞부분만 쓴다."""
+    """원본 관측을 칸마다 OBS_SCALE 로 나눠 정규화한다. 길이가 짧으면 앞부분만 쓴다."""
     obs = np.asarray(obs, dtype=np.float32).reshape(-1)
     return obs / OBS_SCALE[: obs.shape[0]]
