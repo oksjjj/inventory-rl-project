@@ -231,16 +231,23 @@ def observation_sentiment(env, period: int) -> float:
 
 
 def pipeline_rows_after_step(env, period: int) -> list[str]:
+    """step 이 끝난 뒤 링크별 이동 중. 기간 시작 일정(pipeline_arrivals_at_start)과 짝.
+
+    Y[period+1]: 오늘 발주를 더한 뒤의 이동 중 합. 오늘 도착분은 이미 빠짐.
+    R[period]: 오늘 실제로 시킨 발주. 요청이 아니라 재고·용량으로 자른 양.
+    arrives_at: 오늘 발주가 도착하는 기간. 파이프라인 전체가 끝나는 시점이 아님.
+    """
     rows = []
+    # lead_times 키는 발주 링크. (2,1) L=4, (3,2) L=4, (4,3) L=0
     for (src, dst), lead_time in env.network.lead_times.items():
-        reorder_idx = env.network.reorder_map[(src, dst)]
-        in_transit = float(env.Y[period + 1, reorder_idx])  # step 끝난 뒤 이동 중
-        arrives_at = period + lead_time  # 예: period=0, L=4 → 기간 4 에 도착
+        reorder_idx = env.network.reorder_map[(src, dst)]  # (2,1)=0. R, Y 의 열
+        in_transit = float(env.Y[period + 1, reorder_idx])  # 예: 어제 20 + 오늘 20 − 오늘도착 0 = 40
+        arrives_at = period + lead_time  # 예: period=0, L=4 → 기간 4. L=0 이면 오늘
         rows.append(
             f"  {src}->{dst}: 이번 발주 {env.R[period, reorder_idx]:.2f}, "
             f"다음 이동 중 Y={in_transit:.2f}, 이번 발주 도착 예정 기간={arrives_at}"
         )
-    return rows
+    return rows  # 출력 문자열 3줄. 학습에는 안 씀
 
 
 def collect_reward_terms(env, period: int) -> dict:
