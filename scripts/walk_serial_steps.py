@@ -224,10 +224,16 @@ def last_demand_and_backlog(env, period: int) -> tuple[float, float]:
 
 
 def observation_sentiment(env, period: int) -> float:
-    """행동 직전에 관측되는 sentiment. 원본은 이전 step 종료 시점 값을 준다."""
+    """행동 직전에 관측되는 sentiment. 원본은 이전 step 종료 시점 값을 준다.
+
+    GW: goodwill 배열. 길이 30. GW[t] 는 기간 t 수요를 뽑을 때 곱한 배율.
+    sentiment 가 1.2 이면 Poisson 평균이 20×1.2=24 근처가 된다.
+    충족이면 ×1.01, 품절이면 ×0.9. 범위 0.2~2.0.
+    관측은 오늘 GW[period] 가 아니다. 오늘 수요를 아직 안 뽑아서 어제 값을 준다.
+    """
     if period == 0:
-        return 1.0  # 에피소드 시작 기본값
-    return float(env.GW[period - 1])
+        return 1.0  # reset 직후. GW 에 어제 칸이 없음
+    return float(env.GW[period - 1])  # 예: period=3 이면 GW[2]
 
 
 def pipeline_rows_after_step(env, period: int) -> list[str]:
