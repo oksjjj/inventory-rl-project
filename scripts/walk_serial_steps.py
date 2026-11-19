@@ -160,63 +160,50 @@ def receipts_by_node(env, period: int) -> dict[int, float]:
 
 
 def outflow_by_node(env, period: int) -> dict[int, float]:
-    """오늘(period) 각 노드에서 나간 수량. 오늘 입고가 아니라 오늘 출하/판매.
-
-    S: 링크를 타고 실제로 보낸 양. 발주 링크면 출하, 소매→시장이면 판매.
-    net_idx: 네트워크 링크 번호 (발주 3칸 + 판매 1칸 = 4칸). reorder_idx 와 다름.
-    succ_network_indices: 그 노드에서 아래로 나가는 링크.
-    shipped / v: 원본 재고식과 같음. Serial v=1 이라 출하량 그대로.
-    """
+    """노드에서 나간 수량. 유통/공장은 하류 출하, 소매는 판매."""
     outflows = {}
+    # 소매1, 유통2, 공장3
     for node_id in env.network.main_nodes:
         shipped = 0.0
+        # 이 노드에서 아래로 나가는 링크. net_idx 는 S 의 열 번호 (0~3)
         for _, net_idx in env.network.succ_network_indices[node_id]:
-            shipped += float(env.S[period, net_idx])
+            shipped += float(env.S[period, net_idx])  # 오늘 그 링크로 보낸 양
         yield_rate = env.network.graph.nodes[node_id].get("v", 1.0)
-        outflows[node_id] = shipped / yield_rate
+        outflows[node_id] = shipped / yield_rate  # Serial v=1 이라 shipped 그대로
     return outflows
 
 
 def pipeline_stock(env, period: int) -> dict[tuple[int, int], float]:
-    """기간 period 시작의 링크별 이동 중 재고 Y. 창고 X 가 아님.
-
-    edge: 발주 링크 튜플 (보내는 노드, 받는 노드). 예: (2, 1) 유통→소매.
-    reorder_map[edge]: 그 링크의 열 번호 = action 번호.
-    Y[period, 열]: 그 링크에서 아직 안 도착한 발주를 모두 합친 양.
-    유지비 g 는 이 양에 매 기간, 받는 쪽 노드 이익에서 깎인다.
-    L=0 원자재→공장은 같은 기간에 입고되어 Y 가 보통 0.
-    """
+    """링크별 이동 중 재고 Y. 유지비 g 는 이 양에 매 기간, 받는 쪽 노드 이익에서 깎인다."""
     return {
+        # edge=(2,1) 이면 reorder_map=0. Y[period, 0] 이 유통→소매 이동 중 합
         edge: float(env.Y[period, env.network.reorder_map[edge]])
-        for edge in env.network.reorder_links
+        for edge in env.network.reorder_links  # (2,1), (3,2), (4,3)
     }
 
 
 def pipeline_arrivals_at_start(env, period: int) -> list[tuple]:
-    """기간 시작 관측의 파이프라인 일정. Y 합이 아니라 '며칠 후 얼마 도착'.
-
-    원본 CoreEnv._update_state 와 같다. 행동 직전이라 오늘 발주 R[period] 는 없음.
-    L=0 은 일정이 없어서 건너뜀. Serial 은 유통→소매 L=2, 공장→유통 L=4 만.
-    arrivals[delay] = R[period - L + delay]: delay기간 후에 도착할 양.
-    order_time < 0 이면 에피소드 시작 전이라 0.
-    합(arrivals) = 그 링크의 기간 시작 Y.
-    """
+    """기간 시작 관측의 파이프라인. 원본 CoreEnv._update_state와 같다."""
     rows = []
+    # 발주 링크 3개: (2,1), (3,2), (4,3)
     for edge in env.network.reorder_links:
-        lead_time = env.network.lead_times[edge]
+        lead_time = env.network.lead_times[edge]  # (2,1)=2, (3,2)=4, (4,3)=0
         if lead_time == 0:
-            continue
-        reorder_idx = env.network.reorder_map[edge]
-        arrivals = np.zeros(lead_time)
-        for delay in range(lead_time):
+            continue  # (4,3) 건너뜀. 같은 기간에 도착해서 일정이 없음
+        reorder_idx = env.network.reorder_map[edge]  # (2,1)=0, (3,2)=1. R 의 열
+        arrivals = np.zeros(lead_time)  # L=2 면 [0, 0], L=4 면 [0, 0, 0, 0]
+        for delay in range(lead_time):  # L=2 면 delay=0, 1
+            # period=10, L=2: delay=0 → 8, delay=1 → 9
             order_time = period - lead_time + delay
+            # 에피소드 시작 전(<0)이거나 오늘 발주(==period)면 0 으로 남김
             if 0 <= order_time < period:
                 arrivals[delay] = env.R[order_time, reorder_idx]
+        # 출력용: "0기간 후 12.00, 1기간 후 8.00"
         schedule = ", ".join(
             f"{delay}기간 후 {arrivals[delay]:.2f}" for delay in range(lead_time)
         )
         rows.append((edge, arrivals, float(arrivals.sum()), schedule))
-    return rows
+    return rows  # Serial 에서는 링크 2개. (4,3) 없음
 
 
 def last_demand_and_backlog(env, period: int) -> tuple[float, float]:
