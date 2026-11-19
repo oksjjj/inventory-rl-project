@@ -67,7 +67,7 @@ def print_environment(env) -> None:
     print()
     print("링크")
     for src, dst, attrs in network.graph.edges(data=True):
-        printable = {k: v for k, v in attrs.items() if k != "demand_dist"}
+        printable = {k: v for k, v in attrs.items()}
         print(f"  {src} -> {dst}: {printable}")
     print()
     print("행동 한 칸이 의미하는 발주 링크")
