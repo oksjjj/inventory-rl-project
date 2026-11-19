@@ -21,6 +21,7 @@ import numpy as np
 
 # 정규화 나누기. 원본 관측 / OBS_SCALE 이면 대략 0~1.
 # 80 = 발주 상한 MAX_ORDER, 100·200 = 시작 재고 I0, 30 = 에피소드 길이.
+# 예: 수요 40 / 80 = 0.5, 공장 재고 200 / 200 = 1.0, 기간 15 / 30 = 0.5
 OBS_SCALE = np.array(
     [
         80.0,  # [0] 수요
@@ -39,5 +40,7 @@ OBS_SCALE = np.array(
 
 def scale_obs(obs: np.ndarray) -> np.ndarray:
     """원본 관측을 칸마다 OBS_SCALE 로 나눠 정규화한다. 길이가 짧으면 앞부분만 쓴다."""
+    # reshape(-1): (15,) 로 펼친다. 예: [[20, 0, ...]] → [20, 0, ...]
     obs = np.asarray(obs, dtype=np.float32).reshape(-1)
+    # Serial-v0 는 항상 15칸. 길이가 더 짧으면 나누는 쪽도 앞부분만 맞춘다.
     return obs / OBS_SCALE[: obs.shape[0]]

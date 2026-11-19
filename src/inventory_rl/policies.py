@@ -21,7 +21,8 @@ class ConstantOrderPolicy:
 
     def get_action(self, obs: np.ndarray, env) -> np.ndarray:
         # obs 는 안 본다. 재고가 남아 있든 비었든 20을 넣는다.
-        n_actions = env.action_space.shape[0]
+        n_actions = env.action_space.shape[0]  # Serial-v0 는 3
+        # 예: order=20 → [20, 20, 20]
         return clip_order(np.full(n_actions, self.order, dtype=np.float64))
 
 
@@ -51,7 +52,7 @@ class BaseStockPolicy:
         )
         self.node_info = {}
         for node in self.main_nodes:
-            holding = core.graph.nodes[node].get("h", 0.1)
+            holding = core.graph.nodes[node].get("h", 0.1)  # 소매 h=0.03, 유통 0.02, 공장 0.01
             if node in network.retail:
                 # 소매 링크의 미충족 벌점 b. 고객에게 못 주면 이만큼 깎인다.
                 penalty = max(
@@ -68,15 +69,17 @@ class BaseStockPolicy:
                     for edge in network.reorder_links
                     if edge[1] == node
                 ]
+                # 예: 유통은 팔 1.5, 사 1.0 → penalty=0.5
                 penalty = max(max(sell_prices, default=0) - min(buy_prices, default=0), 0.5)
             # cr 이 클수록 “품절이 유지비보다 아프다” → 목표 재고를 높게.
+            # 예: penalty=0.5, holding=0.02 → cr=0.5/0.52 ≈ 0.96
             critical_ratio = penalty / (penalty + holding) if (penalty + holding) > 0 else service_level
             # 이 노드로 들어오는 발주 링크와, 그중 가장 긴 리드타임.
             incoming = [(i, edge) for i, edge in enumerate(network.reorder_links) if edge[1] == node]
             max_lead = max((core.graph.edges[edge]["L"] for _, edge in incoming), default=0)
             self.node_info[node] = {
                 "cr": critical_ratio,
-                "max_L": max_lead,
+                "max_L": max_lead,  # 소매·유통은 L=4, 공장은 L=0
                 "incoming": incoming,  # (행동 벡터의 몇 번째 칸, 링크)
             }
 
@@ -84,7 +87,7 @@ class BaseStockPolicy:
         core = env.unwrapped
         period = core.period
         obs_vec = np.asarray(obs, dtype=float).reshape(-1)
-        last_demand = float(obs_vec[0]) if obs_vec.size else 0.0
+        last_demand = float(obs_vec[0]) if obs_vec.size else 0.0  # 관측 [0] = 직전 수요
         # reset 직후는 직전 수요가 0이다. 그때만 기본 평균 20을 쓴다.
         mean_demand = last_demand if last_demand > 0 else 20.0
         actions = np.zeros(len(core.network.reorder_links), dtype=np.float64)
@@ -93,6 +96,7 @@ class BaseStockPolicy:
             info = self.node_info[node]
             node_idx = core.network.node_map[node]
             # 주문이 도착하는 동안(L) 플러스 이번 기간(1)만큼의 수요를 커버한다.
+            # 예: 수요 20, L=4 → 20*5=100 을 Poisson 평균으로 씀
             lead_demand = mean_demand * (info["max_L"] + 1)
             # Poisson 누적분포가 cr 이 되는 지점 = 목표 재고 S.
             target = poisson.ppf(info["cr"], lead_demand) if lead_demand > 0 else 0.0
@@ -104,8 +108,9 @@ class BaseStockPolicy:
                 for k in core.graph.successors(node):
                     if (node, k) in core.network.retail_map:
                         backlog = core.U[period - 1, core.network.retail_map[(node, k)]]
-            inventory_position = on_hand + in_transit - backlog
+            inventory_position = on_hand + in_transit - backlog  # 예: 80 + 40 - 0 = 120
             # 이미 S 이상이면 0. 모자라면 그 차이만 발주 (마이너스 발주는 없다).
+            # 예: 목표 130, 위치 120 → 10 발주
             order_needed = max(0.0, float(target - inventory_position))
             n_suppliers = len(info["incoming"])
             if n_suppliers > 0:

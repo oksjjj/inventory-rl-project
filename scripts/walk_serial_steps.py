@@ -35,15 +35,15 @@ def node_role(env, node_id: int) -> str:
     Serial-v0: 0 시장, 1 소매, 2 유통, 3 공장, 4 원자재.
     """
     network = env.network
-    if node_id in network.market:
+    if node_id in network.market:  # [0]
         return "시장"
-    if node_id in network.retail:
+    if node_id in network.retail:  # [1]
         return "소매"
-    if node_id in network.factory:
+    if node_id in network.factory:  # [3]
         return "공장"
-    if node_id in network.rawmat:
+    if node_id in network.rawmat:  # [4]
         return "원자재"
-    if node_id in network.distrib:
+    if node_id in network.distrib:  # [2]
         return "유통"
     return "기타"
 
@@ -136,8 +136,9 @@ def inventory_by_node(env, period: int) -> dict[int, float]:
     X 열 번호와 노드 id 가 다를 수 있어 node_map 으로 칸을 찾는다.
     """
     return {
+        # node_map[1]=1 이면 X[period, 1] 이 소매 창고. 예: period=0 → 100
         node_id: float(env.X[period, env.network.node_map[node_id]])
-        for node_id in env.network.main_nodes
+        for node_id in env.network.main_nodes  # 1, 2, 3
     }
 
 
@@ -152,8 +153,10 @@ def receipts_by_node(env, period: int) -> dict[int, float]:
     receipts = {}
     for node_id in env.network.main_nodes:
         incoming = 0.0
+        # 이 노드로 들어오는 발주 링크. 소매면 (reorder_idx=0, L=4)
         for _, reorder_idx, lead_time in env.network.pred_reorder_indices[node_id]:
             if period - lead_time >= 0:
+                # 예: period=5, L=4 → R[1, 열] 이 오늘 입고
                 incoming += float(env.R[period - lead_time, reorder_idx])
         receipts[node_id] = incoming
     return receipts
@@ -187,13 +190,13 @@ def pipeline_arrivals_at_start(env, period: int) -> list[tuple]:
     rows = []
     # 발주 링크 3개: (2,1), (3,2), (4,3)
     for edge in env.network.reorder_links:
-        lead_time = env.network.lead_times[edge]  # (2,1)=2, (3,2)=4, (4,3)=0
+        lead_time = env.network.lead_times[edge]  # (2,1)=4, (3,2)=4, (4,3)=0
         if lead_time == 0:
             continue  # (4,3) 건너뜀. 같은 기간에 도착해서 일정이 없음
         reorder_idx = env.network.reorder_map[edge]  # (2,1)=0, (3,2)=1. R 의 열
-        arrivals = np.zeros(lead_time)  # L=2 면 [0, 0], L=4 면 [0, 0, 0, 0]
-        for delay in range(lead_time):  # L=2 면 delay=0, 1
-            # period=10, L=2: delay=0 → 8, delay=1 → 9
+        arrivals = np.zeros(lead_time)  # L=4 면 [0, 0, 0, 0]
+        for delay in range(lead_time):  # L=4 면 delay=0, 1, 2, 3
+            # period=10, L=4: delay=0 → 6, delay=1 → 7, delay=2 → 8, delay=3 → 9
             order_time = period - lead_time + delay
             # 에피소드 시작 전(<0)이거나 오늘 발주(==period)면 0 으로 남김
             if 0 <= order_time < period:
@@ -209,14 +212,15 @@ def pipeline_arrivals_at_start(env, period: int) -> list[tuple]:
 def last_demand_and_backlog(env, period: int) -> tuple[float, float]:
     """관측 앞 두 칸. 원본은 이번 기간 수요를 아직 안 뽑아서 직전 기간 D, U 를 준다."""
     if period > 0:
+        # 예: period=3 이면 D[2, 0], U[2, 0]. 칸 0 은 소매→시장 하나뿐
         return float(env.D[period - 1, 0]), float(env.U[period - 1, 0])
-    return 0.0, 0.0
+    return 0.0, 0.0  # reset 직후는 어제 수요가 없음
 
 
 def observation_sentiment(env, period: int) -> float:
     """행동 직전에 관측되는 sentiment. 원본은 이전 step 종료 시점 값을 준다."""
     if period == 0:
-        return 1.0
+        return 1.0  # 에피소드 시작 기본값
     return float(env.GW[period - 1])
 
 
@@ -224,8 +228,8 @@ def pipeline_rows_after_step(env, period: int) -> list[str]:
     rows = []
     for (src, dst), lead_time in env.network.lead_times.items():
         reorder_idx = env.network.reorder_map[(src, dst)]
-        in_transit = float(env.Y[period + 1, reorder_idx])
-        arrives_at = period + lead_time
+        in_transit = float(env.Y[period + 1, reorder_idx])  # step 끝난 뒤 이동 중
+        arrives_at = period + lead_time  # 예: period=0, L=4 → 기간 4 에 도착
         rows.append(
             f"  {src}->{dst}: 이번 발주 {env.R[period, reorder_idx]:.2f}, "
             f"다음 이동 중 Y={in_transit:.2f}, 이번 발주 도착 예정 기간={arrives_at}"
@@ -241,6 +245,7 @@ def collect_reward_terms(env, period: int) -> dict:
 
     for node_id in env.network.main_nodes:
         role = node_role(env, node_id)
+        # SR: 아래로 보낸 양 × 그 링크 가격. 예: 소매 24 × 2.0 = 48
         for succ_idx, net_idx in env.network.succ_network_indices[node_id]:
             succ_id = env.network.idx_to_node[succ_idx]
             price = float(env.network.graph.edges[(node_id, succ_id)]["p"])
@@ -251,6 +256,7 @@ def collect_reward_terms(env, period: int) -> dict:
                 f"  {role} {node_id}->{succ_id}: {price:.2f} × {shipped:.2f} = {value:.4f}"
             )
 
+        # PC: 오늘 시킨 발주 × 사는 가격. 예: 유통이 소매에 20, p=1.5 → 30
         for pred_idx, reorder_idx, _lead in env.network.pred_reorder_indices[node_id]:
             pred_id = env.network.idx_to_node[pred_idx]
             price = float(env.network.graph.edges[(pred_id, node_id)]["p"])
@@ -264,8 +270,8 @@ def collect_reward_terms(env, period: int) -> dict:
         if node_id not in env.network.rawmat:
             node_idx = env.network.node_map[node_id]
             hold_rate = float(env.network.graph.nodes[node_id]["h"])
-            on_hand = float(env.X[period + 1, node_idx])
-            on_hand_cost = hold_rate * on_hand
+            on_hand = float(env.X[period + 1, node_idx])  # step 끝난 뒤 창고
+            on_hand_cost = hold_rate * on_hand  # 예: 소매 76 × 0.03
             holding_cost += on_hand_cost
             hc_lines.append(
                 f"  {role} 보유 {node_id}: {hold_rate:.3f} × {on_hand:.2f} = {on_hand_cost:.4f}"
@@ -284,8 +290,8 @@ def collect_reward_terms(env, period: int) -> dict:
 
         if node_id in env.network.factory:
             shipped = sum(float(env.S[period, net_idx]) for _, net_idx in env.network.succ_network_indices[node_id])
-            op_rate = float(env.network.graph.nodes[node_id]["o"])
-            yield_rate = float(env.network.graph.nodes[node_id]["v"])
+            op_rate = float(env.network.graph.nodes[node_id]["o"])  # 0.01
+            yield_rate = float(env.network.graph.nodes[node_id]["v"])  # 1.0
             # OC = (o/v)×출하. o=가공비, v=수율. Serial 은 v=1 이라 0.01×공장출하.
             node_operating = (op_rate / yield_rate) * shipped
             operating_cost += node_operating
@@ -296,8 +302,8 @@ def collect_reward_terms(env, period: int) -> dict:
         if node_id in env.network.retail:
             for succ_id in env.network.graph.successors(node_id):
                 if (node_id, succ_id) in env.network.retail_map:
-                    retail_idx = env.network.retail_map[(node_id, succ_id)]
-                    penalty_rate = float(env.network.graph.edges[(node_id, succ_id)]["b"])
+                    retail_idx = env.network.retail_map[(node_id, succ_id)]  # Serial 은 0
+                    penalty_rate = float(env.network.graph.edges[(node_id, succ_id)]["b"])  # 0.1
                     unmet = float(env.U[period, retail_idx])
                     value = penalty_rate * unmet
                     backlog_penalty += value
@@ -315,7 +321,8 @@ def collect_reward_terms(env, period: int) -> dict:
                 f"  {role} {pred_id}->{node_id}: K={setup_cost:.3f}, R={ordered:.2f} → {value:.4f}"
             )
 
-    discount = float(env.alpha**period)
+    discount = float(env.alpha**period)  # Serial 기본 α=1 이라 항상 1
+    # 세 노드 항목을 다 더한 뒤 한 번에 할인. 원본 step 보상과 같아야 함
     reconstructed = discount * (
         sales_revenue - purchase_cost - operating_cost - holding_cost - backlog_penalty - fixed_order_cost
     )
@@ -383,11 +390,11 @@ def print_reward_formula(terms: dict, reward: float, info: dict, period: int) ->
 
 def print_period(env, period: int, action: np.ndarray, reward: float, info: dict) -> None:
     """한 기간 출력. period 는 step 직전 값(0~29). step 이 끝난 뒤 행렬 R,X,D 를 읽는다."""
-    retail_idx = 0
-    retail_link = env.network.retail_links[retail_idx]
-    retail_net_idx = env.network.network_map[retail_link]
-    opening = inventory_by_node(env, period)
-    closing = inventory_by_node(env, period + 1)
+    retail_idx = 0  # Serial 은 시장 링크가 하나. D, U 의 열 0
+    retail_link = env.network.retail_links[retail_idx]  # (1, 0)
+    retail_net_idx = env.network.network_map[retail_link]  # S 에서 소매 판매 칸
+    opening = inventory_by_node(env, period)  # step 시작 창고 X[t]
+    closing = inventory_by_node(env, period + 1)  # step 끝 창고 X[t+1]
     receipts = receipts_by_node(env, period)
     outflows = outflow_by_node(env, period)
     terms = collect_reward_terms(env, period)
@@ -476,10 +483,10 @@ def main() -> None:
     args = parse_args()
     env = gym.make("GymInvMgmt/Serial-v0", demand_config=SERIAL_DEMAND_CONFIG)
     env.reset(seed=args.seed)
-    core = env.unwrapped
+    core = env.unwrapped  # Wrapper 를 벗겨 X, Y, R 행렬에 바로 접근
 
     print_environment(core)
-    action = np.full(core.action_space.shape, args.order, dtype=np.float64)
+    action = np.full(core.action_space.shape, args.order, dtype=np.float64)  # 예: [20, 20, 20]
     print("환경: GymInvMgmt/Serial-v0")
     print(f"이번 실행 정책: 매 기간 모든 링크에 {args.order} 발주")
     print(f"seed={args.seed}, 출력 기간={args.steps}")

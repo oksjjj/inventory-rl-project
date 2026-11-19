@@ -21,6 +21,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
+# scripts/ 에서 실행해도 src/inventory_rl 을 import 하게 경로를 넣는다.
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -31,7 +32,7 @@ from inventory_rl.reinforce_agent import ReinforceAgent
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Serial-v0 전체 발주 REINFORCE 학습")
     parser.add_argument("--demand", choices=["stationary", "trend_shock"], default="trend_shock")
-    parser.add_argument("--episodes", type=int, default=3000)
+    parser.add_argument("--episodes", type=int, default=3000)  # 30기간짜리 게임을 몇 판 돌릴지
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out-dir", type=str, default="")
     parser.add_argument("--save-path", type=str, default="")
@@ -62,7 +63,7 @@ def main() -> None:
         writer.writeheader()
 
         for episode in range(1, args.episodes + 1):
-            # 에피소드마다 시드를 바꿔 수요 난수를 다르게 한다.
+            # 에피소드마다 시드를 바꿔 수요 난수를 다르게 한다. 예: seed=0이면 1, 2, ..., 3000
             obs, _ = env.reset(seed=args.seed + episode)
             log_probs = []
             values = []
@@ -74,7 +75,7 @@ def main() -> None:
             while not done:
                 action, log_prob, entropy, value = agent.act_and_log(obs)
                 obs, reward, terminated, truncated, _ = env.step(clip_order(action))
-                done = terminated or truncated
+                done = terminated or truncated  # 30기간이 끝나면 truncated=True
                 log_probs.append(log_prob)  # 이 발주의 로그확률 (업데이트에 필요)
                 values.append(value)  # 그때의 V(s)
                 entropies.append(entropy)
@@ -97,6 +98,7 @@ def main() -> None:
 
     # 한 에피소드 보상은 수요 난수 때문에 흔들린다. 50개 평균으로 추세를 본다.
     window = max(1, min(50, len(history_return)))
+    # i=0 이면 자기 자신만, i=49 이면 0~49의 평균
     moving = [
         sum(history_return[max(0, i - window + 1) : i + 1]) / (i - max(0, i - window + 1) + 1)
         for i in range(len(history_return))

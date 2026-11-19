@@ -33,6 +33,7 @@ from torch.distributions import Normal
 from inventory_rl.env import MAX_ORDER, clip_order
 from inventory_rl.obs import scale_obs
 
+# REINFORCE 와 같은 시작 발주. sigmoid(x)=20/80=0.25 → x=ln(0.25/0.75)
 _INIT_ORDER_LOGIT = math.log(0.25 / 0.75)
 
 
@@ -43,19 +44,20 @@ class ActorCriticNet(nn.Module):
         super().__init__()
         self.max_order = max_order
         self.backbone = nn.Sequential(
-            nn.Linear(obs_dim, hidden),
+            nn.Linear(obs_dim, hidden),  # 15 → 64
             nn.Tanh(),
             nn.Linear(hidden, hidden),
             nn.Tanh(),
         )
-        self.mean_head = nn.Linear(hidden, act_dim)
-        self.value_head = nn.Linear(hidden, 1)
-        self.log_std = nn.Parameter(torch.full((act_dim,), 1.0))
+        self.mean_head = nn.Linear(hidden, act_dim)  # 발주 평균 3칸
+        self.value_head = nn.Linear(hidden, 1)  # V(s) 1칸
+        self.log_std = nn.Parameter(torch.full((act_dim,), 1.0))  # exp(1)≈2.7
         nn.init.zeros_(self.mean_head.weight)
-        nn.init.constant_(self.mean_head.bias, _INIT_ORDER_LOGIT)
+        nn.init.constant_(self.mean_head.bias, _INIT_ORDER_LOGIT)  # 시작 평균 ≈ 20
 
     def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         hidden = self.backbone(obs)
+        # 예: sigmoid=0.25 → mean=80*0.25=20
         mean = self.max_order * torch.sigmoid(self.mean_head(hidden))
         std = self.log_std.exp().clamp(0.05, 12.0)
         value = self.value_head(hidden).squeeze(-1)
@@ -100,8 +102,8 @@ class ActorCriticAgent:
         obs_t = self._tensor_obs(obs).unsqueeze(0)
         mean, std, value = self.model(obs_t)
         dist = Normal(mean, std)
-        sampled = dist.sample()
-        log_prob = dist.log_prob(sampled).sum(dim=-1)
+        sampled = dist.sample()  # 평균 근처에서 발주 3칸을 뽑음
+        log_prob = dist.log_prob(sampled).sum(dim=-1)  # 세 링크 로그확률의 합
         entropy = dist.entropy().sum(dim=-1)
         action = sampled[0].detach().cpu().numpy()
         return action, log_prob, entropy, value.squeeze(0)
@@ -125,9 +127,10 @@ class ActorCriticAgent:
         with torch.no_grad():
             _, _, next_value = self.model(self._tensor_obs(next_obs).unsqueeze(0))
             bootstrap = 0.0 if done else float(next_value.squeeze(0).item())
+        # 예: r=30, V(s')=2.0, γ=0.99 → y=30/50 + 0.99*2.0 = 2.58
         td_target = reward / self.reward_scale + self.gamma * bootstrap
-        td_error = td_target - value
-        policy_loss = -(log_prob.squeeze() * td_error.detach())
+        td_error = td_target - value  # δ. 양수면 “생각보다 이득”
+        policy_loss = -(log_prob.squeeze() * td_error.detach())  # δ는 상수로 취급
         value_loss = td_error.pow(2)
         entropy_loss = -entropy.squeeze()
         loss = policy_loss + 0.5 * value_loss + self.entropy_coef * entropy_loss

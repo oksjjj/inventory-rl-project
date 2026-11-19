@@ -18,6 +18,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
+# scripts/ 에서 실행해도 src/inventory_rl 을 import 하게 경로를 넣는다.
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -28,7 +29,7 @@ from inventory_rl.env import clip_order, make_serial_env, output_dir_for_demand
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Serial-v0 전체 발주 TD actor-critic 학습")
     parser.add_argument("--demand", choices=["stationary", "trend_shock"], default="trend_shock")
-    parser.add_argument("--episodes", type=int, default=3000)
+    parser.add_argument("--episodes", type=int, default=3000)  # 30기간짜리 게임을 몇 판 돌릴지
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out-dir", type=str, default="")
     parser.add_argument("--save-path", type=str, default="")
@@ -45,8 +46,8 @@ def main() -> None:
     env = make_serial_env(demand=args.demand)
     env.reset(seed=args.seed)
     agent = ActorCriticAgent(
-        obs_dim=env.observation_space.shape[0],
-        act_dim=env.action_space.shape[0],
+        obs_dim=env.observation_space.shape[0],  # Serial-v0 = 15
+        act_dim=env.action_space.shape[0],  # 발주 링크 3개
     )
 
     log_path = ROOT / args.log_path if args.log_path else out_dir / "actor_critic_train_log.csv"
@@ -70,11 +71,12 @@ def main() -> None:
                 action, log_prob, entropy, value = agent.act_and_log(obs)
                 next_obs, reward, terminated, truncated, _ = env.step(clip_order(action))
                 done = terminated or truncated
+                # REINFORCE 와 달리 30기간을 기다리지 않고, 이 한 칸으로 바로 업데이트
                 last_stats = agent.learn_step(
                     log_prob, entropy, value, float(reward), next_obs, done
                 )
                 rewards.append(float(reward))
-                obs = next_obs
+                obs = next_obs  # 다음 루프의 s 가 지금 s'
 
             episode_return = float(sum(rewards))
             history_return.append(episode_return)
@@ -90,6 +92,7 @@ def main() -> None:
     env.close()
 
     window = max(1, min(50, len(history_return)))
+    # i=0 이면 자기 자신만, i=49 이면 0~49의 평균
     moving = [
         sum(history_return[max(0, i - window + 1) : i + 1]) / (i - max(0, i - window + 1) + 1)
         for i in range(len(history_return))

@@ -13,4 +13,5 @@ from inventory_rl.actor_critic_agent import ActorCriticAgent, ActorCriticNet
 from inventory_rl.dqn_agent import DQNAgent
 from inventory_rl.reinforce_agent import ActorCritic, ReinforceAgent
 
+# from inventory_rl.agent import ActorCritic 하면 REINFORCE 망이 나온다. TD 가 아님.
 __all__ = ["ActorCritic", "ActorCriticAgent", "ActorCriticNet", "DQNAgent", "ReinforceAgent"]

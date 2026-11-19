@@ -63,8 +63,8 @@ class ActorCritic(nn.Module):
             nn.Linear(hidden, hidden),
             nn.Tanh(),
         )
-        self.mean_head = nn.Linear(hidden, act_dim)
-        self.value_head = nn.Linear(hidden, 1)
+        self.mean_head = nn.Linear(hidden, act_dim)  # 출력 3칸 = 발주 링크 3개
+        self.value_head = nn.Linear(hidden, 1)  # 출력 1칸 = V(s)
         # 표준편차는 양수여야 해서 log_std 를 학습하고 exp 한다.
         # 시작값 exp(1)≈2.7. 발주를 평균 근처에서 조금씩 흔든다.
         self.log_std = nn.Parameter(torch.full((act_dim,), 1.0))
@@ -75,10 +75,11 @@ class ActorCritic(nn.Module):
     def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         hidden = self.backbone(obs)
         # sigmoid 가 0~1, 곱하면 0~MAX_ORDER. 음수 발주가 평균으로 안 나온다.
+        # 예: sigmoid=0.25 → mean=80*0.25=20
         mean = self.max_order * torch.sigmoid(self.mean_head(hidden))
         # 너무 작으면 탐색이 없고, 너무 크면 발주가 난리가 난다.
         std = self.log_std.exp().clamp(0.05, 12.0)
-        value = self.value_head(hidden).squeeze(-1)
+        value = self.value_head(hidden).squeeze(-1)  # (batch, 1) → (batch,)
         return mean, std, value
 
 
@@ -99,7 +100,7 @@ class ReinforceAgent:
             device = "mps" if torch.backends.mps.is_available() else "cpu"
         self.device = torch.device(device)
         self.gamma = gamma  # 할인율. 1에 가까울수록 먼 기간 보상도 지금 발주 탓으로 본다.
-        self.entropy_coef = entropy_coef  #  entrop가 클수록 발주를 더 다양하게 뽑는다.
+        self.entropy_coef = entropy_coef  # entropy 가 클수록 발주를 더 다양하게 뽑는다.
         self.reward_scale = reward_scale  # 원본 보상 합이 수백이라, 나눠야 V 학습이 안정적이다.
         self.model = ActorCritic(obs_dim, act_dim).to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
@@ -116,9 +117,9 @@ class ReinforceAgent:
         """
         self.model.eval()
         with torch.no_grad():
-            mean, std, _ = self.model(self._tensor_obs(obs).unsqueeze(0))
+            mean, std, _ = self.model(self._tensor_obs(obs).unsqueeze(0))  # 배치 1
             sampled = mean[0] if deterministic else Normal(mean, std).sample()[0]
-        return clip_order(sampled.cpu().numpy())
+        return clip_order(sampled.cpu().numpy())  # 예: [19.8, 22.1, 18.4] → 0~80
 
     def act_and_log(self, obs: np.ndarray) -> tuple[np.ndarray, torch.Tensor, torch.Tensor, torch.Tensor]:
         """학습용 발주.
@@ -134,11 +135,11 @@ class ReinforceAgent:
         obs_t = self._tensor_obs(obs).unsqueeze(0)  # 배치 차원 1칸 추가
         mean, std, value = self.model(obs_t)
         dist = Normal(mean, std)
-        sampled = dist.sample()
+        sampled = dist.sample()  # 예: 평균 (20,20,20) 근처에서 (18.1, 23.4, 19.0)
         # 링크가 3개라 로그확률도 3개. 합쳐서 “이 발주 벡터”의 로그확률로 쓴다.
         log_prob = dist.log_prob(sampled).sum(dim=-1)
         entropy = dist.entropy().sum(dim=-1)
-        action = sampled[0].detach().cpu().numpy()
+        action = sampled[0].detach().cpu().numpy()  # 환경에 넣을 numpy 3칸
         return action, log_prob, entropy, value.squeeze(0)
 
     def update_episode(
@@ -163,6 +164,7 @@ class ReinforceAgent:
         discounted = 0.0
         for reward in reversed(rewards):
             # 보상을 50으로 나눠 G 와 V 의 스케일을 맞춘다.
+            # 예: 마지막 r=30 → G=30/50=0.6. 그 앞 r=20, γ=0.99 → G=20/50 + 0.99*0.6
             discounted = reward / self.reward_scale + self.gamma * discounted
             returns.insert(0, discounted)  # 맨 앞에 넣어 시간 순서를 되돌린다.
         returns_t = torch.tensor(returns, dtype=torch.float32, device=self.device)
@@ -179,9 +181,9 @@ class ReinforceAgent:
         entropy_loss = -entropy.mean()
         loss = policy_loss + 0.5 * value_loss + self.entropy_coef * entropy_loss
 
-        self.optimizer.zero_grad()
+        self.optimizer.zero_grad()  # 이전 기울기 지우기
         loss.backward()
-        nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
+        nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)  # 기울기가 너무 크면 자름
         self.optimizer.step()
         return {
             "loss": float(loss.item()),
@@ -193,7 +195,7 @@ class ReinforceAgent:
     def save(self, path: str | Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save({"model": self.model.state_dict()}, path)
+        torch.save({"model": self.model.state_dict()}, path)  # 가중치만 저장
 
     def load(self, path: str | Path) -> None:
         payload = torch.load(path, map_location=self.device, weights_only=True)

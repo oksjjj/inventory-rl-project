@@ -24,9 +24,9 @@ DEMAND_PRESETS = {
         "type": "trend+shock",
         "base_mu": 20,
         "use_goodwill": True,
-        "trend_slope": 0.03,  # μ(t) *= 1 + 0.03 * t
+        "trend_slope": 0.03,  # 예: t=10 이면 μ *= 1.3
         "shock_time": 15,  # 이 기간부터 평균에 shock_mag 를 곱한다.
-        "shock_mag": 2.0,
+        "shock_mag": 2.0,  # 예: 기간 15부터 평균이 약 2배
     },
 }
 
@@ -41,7 +41,7 @@ def demand_config(demand: str) -> dict:
     """이름(stationary / trend_shock)을 원본 demand_engine 설정으로 바꾼다."""
     if demand not in DEMAND_PRESETS:
         raise ValueError(f"unknown demand {demand!r}. use one of {sorted(DEMAND_PRESETS)}")
-    return DEMAND_PRESETS[demand]
+    return DEMAND_PRESETS[demand]  # gym.make(..., demand_config=이 딕셔너리)
 
 
 def demand_label(demand: str) -> str:
@@ -54,8 +54,8 @@ def demand_label(demand: str) -> str:
 def output_dir_for_demand(demand: str) -> str:
     """수요마다 체크포인트가 섞이지 않게 저장 폴더를 나눈다."""
     if demand == "stationary":
-        return "outputs/stationary"
-    return "outputs"
+        return "outputs/stationary"  # 정상 수요 가중치
+    return "outputs"  # trend_shock 가중치. 예전 경로와 같게 둠
 
 
 def make_serial_env(num_periods: int = 30, demand: str = "trend_shock") -> gym.Env:
@@ -68,10 +68,11 @@ def make_serial_env(num_periods: int = 30, demand: str = "trend_shock") -> gym.E
     return gym.make(
         "GymInvMgmt/Serial-v0",
         demand_config=demand_config(demand),
-        num_periods=num_periods,
+        num_periods=num_periods,  # 한 에피소드 길이. 기본 30기간
     )
 
 
 def clip_order(action: np.ndarray) -> np.ndarray:
     """음수 발주와 너무 큰 발주를 막는다."""
+    # 예: [-5, 20, 100] → [0, 20, 80]
     return np.clip(np.asarray(action, dtype=np.float64), 0.0, MAX_ORDER)

@@ -4,6 +4,7 @@
 파일 사이 관계와 수업 식 대응은 docs/file_structure.md 를 본다.
 """
 
+# from inventory_rl import DQNAgent 처럼 쓰려고 이름을 밖으로 연다.
 from inventory_rl.actor_critic_agent import ActorCriticAgent
 from inventory_rl.dqn_agent import DQNAgent
 from inventory_rl.reinforce_agent import ReinforceAgent

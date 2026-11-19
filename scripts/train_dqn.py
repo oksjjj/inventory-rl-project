@@ -16,6 +16,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 
+# scripts/ 에서 실행해도 src/inventory_rl 을 import 하게 경로를 넣는다.
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -26,7 +27,7 @@ from inventory_rl.env import clip_order, make_serial_env, output_dir_for_demand
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Serial-v0 이산 발주 DQN 학습")
     parser.add_argument("--demand", choices=["stationary", "trend_shock"], default="trend_shock")
-    parser.add_argument("--episodes", type=int, default=3000)
+    parser.add_argument("--episodes", type=int, default=3000)  # 30기간짜리 게임을 몇 판 돌릴지
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out-dir", type=str, default="")
     parser.add_argument("--save-path", type=str, default="")
@@ -43,8 +44,8 @@ def main() -> None:
     env = make_serial_env(demand=args.demand)
     env.reset(seed=args.seed)
     agent = DQNAgent(
-        obs_dim=env.observation_space.shape[0],
-        n_links=env.action_space.shape[0],
+        obs_dim=env.observation_space.shape[0],  # Serial-v0 = 15
+        n_links=env.action_space.shape[0],  # 발주 링크 3개 → 이산 행동 125개
     )
 
     log_path = ROOT / args.log_path if args.log_path else out_dir / "dqn_train_log.csv"
@@ -61,14 +62,15 @@ def main() -> None:
             rewards = []
             done = False
             while not done:
-                action, index = agent.act_and_index(obs)
+                action, index = agent.act_and_index(obs)  # 예: index=6 → action=[20, 20, 0]
                 next_obs, reward, terminated, truncated, _ = env.step(clip_order(action))
                 done = terminated or truncated
+                # 전이 (s, a, r, s') 를 버퍼에 넣고, 버퍼가 찼으면 Q 를 한 번 맞춤
                 agent.remember(obs, index, float(reward), next_obs, done)
                 stats = agent.learn()
                 last_loss = stats["loss"]
                 rewards.append(float(reward))
-                obs = next_obs
+                obs = next_obs  # 다음 루프의 s 가 지금 s'
 
             episode_return = float(sum(rewards))
             history_return.append(episode_return)
@@ -90,6 +92,7 @@ def main() -> None:
     env.close()
 
     window = max(1, min(50, len(history_return)))
+    # i=0 이면 자기 자신만, i=49 이면 0~49의 평균
     moving = [
         sum(history_return[max(0, i - window + 1) : i + 1]) / (i - max(0, i - window + 1) + 1)
         for i in range(len(history_return))

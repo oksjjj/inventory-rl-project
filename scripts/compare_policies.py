@@ -12,6 +12,7 @@ import csv
 import sys
 from pathlib import Path
 
+# scripts/ 에서 실행해도 src/inventory_rl 을 import 하게 경로를 넣는다.
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
@@ -30,15 +31,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", type=str, default="")
     parser.add_argument("--dqn-checkpoint", type=str, default="")
     parser.add_argument("--ac-checkpoint", type=str, default="")
-    parser.add_argument("--eval-episodes", type=int, default=20)
-    parser.add_argument("--eval-seed", type=int, default=1000)
-    parser.add_argument("--constant-order", type=float, default=20.0)
+    parser.add_argument("--eval-episodes", type=int, default=20)  # 학습이 아니라 평균 낼 판 수
+    parser.add_argument("--eval-seed", type=int, default=1000)  # 학습 시드(0부터)와 겹치지 않게
+    parser.add_argument("--constant-order", type=float, default=20.0)  # 고정 발주 정책의 수량
     parser.add_argument("--out-csv", type=str, default="")
     return parser.parse_args()
 
 
 def print_table(rows: list[dict]) -> None:
     """터미널에 계획서 KPI를 맞춰 출력한다."""
+    # (딕셔너리 키, 화면에 찍을 제목, 칸 너비)
     headers = [
         ("name", "정책", 26),
         ("total_profit", "누적이익", 12),
@@ -57,7 +59,7 @@ def print_table(rows: list[dict]) -> None:
             if key == "name":
                 text = str(value)
             elif key == "fill_rate":
-                text = f"{value:.1%}"
+                text = f"{value:.1%}"  # 예: 0.932 → 93.2%
             else:
                 text = f"{value:,.2f}"
             cells.append(text.ljust(width))
@@ -67,15 +69,15 @@ def print_table(rows: list[dict]) -> None:
 def main() -> None:
     args = parse_args()
     out_dir = ROOT / (args.out_dir or output_dir_for_demand(args.demand))
-    # 학습 때와 다른 시드(기본 1000부터)로 평가한다.
+    # 학습 때와 다른 시드(기본 1000부터)로 평가한다. 예: 1000..1019
     seeds = list(range(args.eval_seed, args.eval_seed + args.eval_episodes))
     env = make_serial_env(demand=args.demand)
     env.reset(seed=0)
-    obs_dim = env.observation_space.shape[0]
-    act_dim = env.action_space.shape[0]
+    obs_dim = env.observation_space.shape[0]  # 15
+    act_dim = env.action_space.shape[0]  # 3
 
     constant = ConstantOrderPolicy(order=args.constant_order)
-    base_stock = BaseStockPolicy(env)
+    base_stock = BaseStockPolicy(env)  # 노드별 목표 S 를 여기서 미리 계산
 
     policies = [
         ("고정 발주", lambda obs, current_env, policy=constant: policy.get_action(obs, current_env)),
@@ -134,7 +136,7 @@ def main() -> None:
     rows = []
     for name, action_fn in policies:
         print(f"평가 중: {name}")
-        summary = evaluate_policy(action_fn, seeds, demand=args.demand)
+        summary = evaluate_policy(action_fn, seeds, demand=args.demand)  # 20에피소드 평균 KPI
         summary["name"] = name
         rows.append(summary)
 
@@ -158,7 +160,7 @@ def main() -> None:
         "n_episodes",
     ]
     with out_csv.open("w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="ignore")
+        writer = csv.DictWriter(file, fieldnames=fieldnames, extrasaction="ignore")  # 표에 없는 키는 버림
         writer.writeheader()
         writer.writerows(rows)
     print(f"저장: {out_csv}")

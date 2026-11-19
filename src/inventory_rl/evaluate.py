@@ -14,25 +14,26 @@ from gym_invmgmt.utils import compute_kpis
 from inventory_rl.env import clip_order, make_serial_env
 
 # 관측과 환경을 받아 발주 벡터를 돌려주는 함수.
+# 예: action_fn(obs, env) → np.array([20, 20, 20])
 ActionFn = Callable[[np.ndarray, object], np.ndarray]
 
 
 def run_episode(env, action_fn: ActionFn, seed: int) -> dict[str, float]:
     """시드 하나로 30기간을 끝까지 돌린다. 학습 때와 달리 가중치는 안 바꾼다."""
-    obs, _ = env.reset(seed=seed)
+    obs, _ = env.reset(seed=seed)  # 수요 난수를 seed 로 고정
     rewards = []
     sentiments = []
     done = False
     while not done:
-        action = clip_order(action_fn(obs, env))
+        action = clip_order(action_fn(obs, env))  # 정책이 낸 발주 3칸을 0~80으로
         obs, reward, terminated, truncated, info = env.step(action)
-        rewards.append(float(reward))
+        rewards.append(float(reward))  # 한 기간 이익. 예: 31.62
         sentiments.append(float(info.get("sentiment", 0.0)))
         done = terminated or truncated  # Serial-v0 는 기간이 끝나면 truncated=True
 
     # compute_kpis: 누적 이익, 충족률, 미충족 합, 평균 재고 (원본 함수).
     kpis = compute_kpis(env)
-    kpis["episode_return"] = float(np.sum(rewards))
+    kpis["episode_return"] = float(np.sum(rewards))  # 30기간 보상 합
     kpis["mean_sentiment"] = float(np.mean(sentiments)) if sentiments else 1.0
     kpis["final_sentiment"] = float(env.unwrapped.demand_engine.sentiment)
     return kpis
@@ -46,6 +47,7 @@ def evaluate_policy(
 ) -> dict[str, float]:
     """여러 시드의 평균과, 이익·충족률의 표준편차를 낸다."""
     env = make_serial_env(num_periods=num_periods, demand=demand)
+    # 예: seeds=1000..1019 이면 에피소드 20개를 돌려 평균
     rows = [run_episode(env, action_fn, seed) for seed in seeds]
     keys = [
         "total_profit",
