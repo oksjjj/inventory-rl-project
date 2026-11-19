@@ -267,49 +267,61 @@ def pipeline_rows_after_step(env, period: int) -> list[str]:
 
 
 def collect_reward_terms(env, period: int) -> dict:
-    """원본 CoreEnv._STEP과 같은 항목을 산식 문자열과 함께 모은다."""
+    """원본 CoreEnv._STEP 보상을 항목별로 다시 더한다. 학습에는 안 쓰고 출력 검증용.
+
+    한 기간 보상 r = α^t × (SR − PC − OC − HC − UP − FK)
+    여기 α=1 이라 r = SR − PC − OC − HC − UP − FK.
+    소매·유통·공장 세 노드 값을 다 더한 뒤, env.step 이 준 reward 와 같은지 본다.
+    *_lines 는 터미널에 찍을 "가격 × 수량 = 금액" 문자열.
+    """
     sr_lines, pc_lines, hc_lines, oc_lines, up_lines, fk_lines = [], [], [], [], [], []
     sales_revenue = purchase_cost = holding_cost = 0.0
     operating_cost = backlog_penalty = fixed_order_cost = 0.0
 
-    for node_id in env.network.main_nodes:
+    for node_id in env.network.main_nodes:  # 1 소매, 2 유통, 3 공장. 시장·원자재는 이익 없음
         role = node_role(env, node_id)
-        # SR: 아래로 보낸 양 × 그 링크 가격. 예: 소매 24 × 2.0 = 48
+
+        # SR 매출: 오늘 아래로 보낸 양 × 파는 가격 p
+        # 소매 1→0 p=2.0, 유통 2→1 p=1.5, 공장 3→2 p=1.0
         for succ_idx, net_idx in env.network.succ_network_indices[node_id]:
-            succ_id = env.network.idx_to_node[succ_idx]
+            succ_id = env.network.idx_to_node[succ_idx]  # 예: 소매면 시장 0
             price = float(env.network.graph.edges[(node_id, succ_id)]["p"])
-            shipped = float(env.S[period, net_idx])
-            value = price * shipped
+            shipped = float(env.S[period, net_idx])  # 오늘 그 링크 출하/판매
+            value = price * shipped  # 예: 소매 24 × 2.0 = 48
             sales_revenue += value
             sr_lines.append(
                 f"  {role} {node_id}->{succ_id}: {price:.2f} × {shipped:.2f} = {value:.4f}"
             )
 
-        # PC: 오늘 시킨 발주 × 사는 가격. 예: 유통이 소매에 20, p=1.5 → 30
+        # PC 구매비: 오늘 시킨 발주 R × 윗단계에서 사는 가격 p. 도착이 아니라 발주 시점 비용
+        # 소매는 유통에서 삼 p=1.5, 유통은 공장 p=1.0, 공장은 원자재 p=0.5
         for pred_idx, reorder_idx, _lead in env.network.pred_reorder_indices[node_id]:
-            pred_id = env.network.idx_to_node[pred_idx]
+            pred_id = env.network.idx_to_node[pred_idx]  # 예: 소매면 유통 2
             price = float(env.network.graph.edges[(pred_id, node_id)]["p"])
-            ordered = float(env.R[period, reorder_idx])
-            value = price * ordered
+            ordered = float(env.R[period, reorder_idx])  # 오늘 실제 발주. 요청이 아님
+            value = price * ordered  # 예: 소매가 20 시키면 1.5 × 20 = 30
             purchase_cost += value
             pc_lines.append(
                 f"  {role} {pred_id}->{node_id}: {price:.2f} × {ordered:.2f} = {value:.4f}"
             )
 
+        # HC 유지비 = 창고 h×X[t+1] + 이동 중 g×Y[t+1]. 오늘 끝난 뒤 남은 양에 붙음
+        # main_nodes 에는 원자재가 없어서 이 if 는 항상 참. 원본 step 과 같은 가드
         if node_id not in env.network.rawmat:
             node_idx = env.network.node_map[node_id]
-            hold_rate = float(env.network.graph.nodes[node_id]["h"])
+            hold_rate = float(env.network.graph.nodes[node_id]["h"])  # 소매 0.03, 유통 0.02, 공장 0.01
             on_hand = float(env.X[period + 1, node_idx])  # step 끝난 뒤 창고
-            on_hand_cost = hold_rate * on_hand  # 예: 소매 76 × 0.03
+            on_hand_cost = hold_rate * on_hand  # 예: 소매 76 × 0.03 = 2.28
             holding_cost += on_hand_cost
             hc_lines.append(
                 f"  {role} 보유 {node_id}: {hold_rate:.3f} × {on_hand:.2f} = {on_hand_cost:.4f}"
             )
-            # 파이프라인 유지비 g×Y 는 보내는 쪽이 아니라 받는 쪽(node_id) HC 에 들어간다.
+            # g×Y 는 보내는 쪽이 아니라 받는 쪽(node_id) 비용
+            # 예: 유통→소매 g=0.01, Y=20 이면 소매 HC 에 0.20 이 들어감
             for pred_idx, reorder_idx, _lead in env.network.pred_reorder_indices[node_id]:
                 pred_id = env.network.idx_to_node[pred_idx]
                 pipeline_rate = float(env.network.graph.edges[(pred_id, node_id)]["g"])
-                in_transit = float(env.Y[period + 1, reorder_idx])
+                in_transit = float(env.Y[period + 1, reorder_idx])  # 오늘 끝난 뒤 이동 중 합
                 pipeline_cost = pipeline_rate * in_transit
                 holding_cost += pipeline_cost
                 hc_lines.append(
@@ -317,29 +329,32 @@ def collect_reward_terms(env, period: int) -> dict:
                     f"{pipeline_rate:.3f} × {in_transit:.2f} = {pipeline_cost:.4f}"
                 )
 
+        # OC 운영비: 공장만. 원자재 1단위 가공비 o 를 출하에 곱함
         if node_id in env.network.factory:
             shipped = sum(float(env.S[period, net_idx]) for _, net_idx in env.network.succ_network_indices[node_id])
             op_rate = float(env.network.graph.nodes[node_id]["o"])  # 0.01
             yield_rate = float(env.network.graph.nodes[node_id]["v"])  # 1.0
-            # OC = (o/v)×출하. o=가공비, v=수율. Serial 은 v=1 이라 0.01×공장출하.
+            # OC = (o/v)×출하. v=1 이라 0.01 × 공장출하. 예: 20 보내면 0.20
             node_operating = (op_rate / yield_rate) * shipped
             operating_cost += node_operating
             oc_lines.append(
                 f"  {role} {node_id}: ({op_rate:.3f} / {yield_rate:.3f}) × {shipped:.2f} = {node_operating:.4f}"
             )
 
+        # UP 품절벌금: 소매만. 고객에게 못 준 U × 벌점 b
         if node_id in env.network.retail:
             for succ_id in env.network.graph.successors(node_id):
-                if (node_id, succ_id) in env.network.retail_map:
+                if (node_id, succ_id) in env.network.retail_map:  # 1→0 만
                     retail_idx = env.network.retail_map[(node_id, succ_id)]  # Serial 은 0
                     penalty_rate = float(env.network.graph.edges[(node_id, succ_id)]["b"])  # 0.1
-                    unmet = float(env.U[period, retail_idx])
-                    value = penalty_rate * unmet
+                    unmet = float(env.U[period, retail_idx])  # 오늘 못 준 양. 수요 − 판매
+                    value = penalty_rate * unmet  # 예: 못 준 14 × 0.1 = 1.4
                     backlog_penalty += value
                     up_lines.append(
                         f"  {role} {node_id}->{succ_id}: {penalty_rate:.3f} × {unmet:.2f} = {value:.4f}"
                     )
 
+        # FK 고정발주비: 그 링크에 발주가 있으면 K 한 번. Serial yaml 에 K 가 없어 항상 0
         for pred_idx, reorder_idx, _lead in env.network.pred_reorder_indices[node_id]:
             pred_id = env.network.idx_to_node[pred_idx]
             setup_cost = float(env.network.graph.edges[(pred_id, node_id)].get("K", 0.0))
@@ -350,7 +365,7 @@ def collect_reward_terms(env, period: int) -> dict:
                 f"  {role} {pred_id}->{node_id}: K={setup_cost:.3f}, R={ordered:.2f} → {value:.4f}"
             )
 
-    discount = float(env.alpha**period)  # Serial 기본 α=1 이라 항상 1
+    discount = float(env.alpha**period)  # Serial 기본 α=1 이라 항상 1. period=5 여도 1^5=1
     # 세 노드 항목을 다 더한 뒤 한 번에 할인. 원본 step 보상과 같아야 함
     reconstructed = discount * (
         sales_revenue - purchase_cost - operating_cost - holding_cost - backlog_penalty - fixed_order_cost
@@ -364,7 +379,7 @@ def collect_reward_terms(env, period: int) -> dict:
         "fk": fixed_order_cost,
         "alpha": float(env.alpha),
         "discount": discount,
-        "reconstructed_reward": float(reconstructed),
+        "reconstructed_reward": float(reconstructed),  # print_reward_formula 가 reward 와 비교
         "sr_lines": sr_lines,
         "pc_lines": pc_lines,
         "hc_lines": hc_lines,
