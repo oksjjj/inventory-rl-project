@@ -210,9 +210,15 @@ def pipeline_arrivals_at_start(env, period: int) -> list[tuple]:
 
 
 def last_demand_and_backlog(env, period: int) -> tuple[float, float]:
-    """관측 앞 두 칸. 원본은 이번 기간 수요를 아직 안 뽑아서 직전 기간 D, U 를 준다."""
+    """관측 앞 두 칸. 원본은 이번 기간 수요를 아직 안 뽑아서 직전 기간 D, U 를 준다.
+
+    D: 소매 수요. 그 기간에 고객이 원한 양. 행=기간, 열=판매 링크.
+    U: 미충족. 그 기간에 못 준 양 = 수요 − 판매. D 와 같은 모양.
+    Serial 은 판매 링크가 1→0 하나라 열은 항상 0.
+    예: D[2, 0]=24, 재고가 충분하면 U[2, 0]=0. 재고 10이면 판매 10, U=14.
+    """
     if period > 0:
-        # 예: period=3 이면 D[2, 0], U[2, 0]. 칸 0 은 소매→시장 하나뿐
+        # 예: period=3 이면 어제 = 기간 2. D[2, 0], U[2, 0]
         return float(env.D[period - 1, 0]), float(env.U[period - 1, 0])
     return 0.0, 0.0  # reset 직후는 어제 수요가 없음
 
