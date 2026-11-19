@@ -239,16 +239,24 @@ def observation_sentiment(env, period: int) -> float:
 def pipeline_rows_after_step(env, period: int) -> list[str]:
     """step 이 끝난 뒤 링크별 이동 중. 기간 시작 일정(pipeline_arrivals_at_start)과 짝.
 
-    Y[period+1]: 오늘 발주를 더한 뒤의 이동 중 합. 오늘 도착분은 이미 빠짐.
-    R[period]: 오늘 실제로 시킨 발주. 요청이 아니라 재고·용량으로 자른 양.
-    arrives_at: 오늘 발주가 도착하는 기간. 파이프라인 전체가 끝나는 시점이 아님.
+    원본 식: Y[t+1] = Y[t] − R[t−L] + R[t]
+      Y[t]     : 오늘 시작 때 이미 실려 가던 양
+      R[t−L]   : 오늘 창고에 도착해서 파이프라인에서 빠지는 양. t−L<0 이면 0
+      R[t]     : 오늘 새로 시킨 발주. 지금부터 L기간 동안 이동
+
+    유통→소매 L=4, 매일 20씩 발주하면:
+      기간 0 끝 Y= 0 − 0 + 20 = 20   (방금 시킨 20만, 기간 4에 도착)
+      기간 1 끝 Y=20 − 0 + 20 = 40   (기간0 발주 + 기간1 발주. 아직 아무도 안 도착)
+      기간 4 끝 Y=80 − 20 + 20 = 80  (기간0 발주 20이 오늘 도착해서 빠지고, 기간4 발주가 들어감)
+
+    arrives_at 는 오늘 R[t] 한 건이 도착하는 기간. Y 전체가 비는 시점이 아님.
     """
     rows = []
     # lead_times 키는 발주 링크. (2,1) L=4, (3,2) L=4, (4,3) L=0
     for (src, dst), lead_time in env.network.lead_times.items():
         reorder_idx = env.network.reorder_map[(src, dst)]  # (2,1)=0. R, Y 의 열
-        in_transit = float(env.Y[period + 1, reorder_idx])  # 예: 어제 20 + 오늘 20 − 오늘도착 0 = 40
-        arrives_at = period + lead_time  # 예: period=0, L=4 → 기간 4. L=0 이면 오늘
+        in_transit = float(env.Y[period + 1, reorder_idx])  # 위 식의 Y[t+1]
+        arrives_at = period + lead_time  # 오늘 R[t] 도착일. period=0, L=4 → 기간 4
         rows.append(
             f"  {src}->{dst}: 이번 발주 {env.R[period, reorder_idx]:.2f}, "
             f"다음 이동 중 Y={in_transit:.2f}, 이번 발주 도착 예정 기간={arrives_at}"
