@@ -17,7 +17,10 @@ import numpy as np
 
 import gym_invmgmt  # noqa: F401  # 원본 환경 등록
 
-# 과제 요구: goodwill을 켠다. gym.make에 demand_config를 넘기면 원본 기본값을 통째로 바꾼다.
+# gym.make에 넘기면 원본 Serial-v0 기본 수요(goodwill 꺼짐)를 통째로 바꾼다.
+# type: 시간에 따라 평균이 안 바뀜. 학습 기본값 trend+shock 와 다름.
+# base_mu: Poisson 수요의 기본 평균.
+# use_goodwill: 품절이면 다음 수요 평균에 sentiment 를 곱함 (과제 요구).
 SERIAL_DEMAND_CONFIG = {
     "type": "stationary",
     "base_mu": 20,
@@ -26,6 +29,11 @@ SERIAL_DEMAND_CONFIG = {
 
 
 def node_role(env, node_id: int) -> str:
+    """노드 번호 → 한글 역할. 출력용이며 학습에는 안 쓴다.
+
+    network.market 등은 노드 번호 list 이다. in 은 그 목록에 있는지만 본다.
+    Serial-v0: 0 시장, 1 소매, 2 유통, 3 공장, 4 원자재.
+    """
     network = env.network
     if node_id in network.market:
         return "시장"
@@ -47,6 +55,8 @@ def section(title: str) -> None:
 
 
 def print_environment(env) -> None:
+    """reset/step 결과가 아니라, 환경이 들고 있는 공급망·수요 설정을 출력한다."""
+    # SupplyChainNetwork. serial.yaml 의 노드·링크. 재고 수량 X 가 아님.
     network = env.network
     print("=== 환경 GymInvMgmt/Serial-v0 ===")
     print(f"에피소드 길이: {env.num_periods}기간")
@@ -54,6 +64,7 @@ def print_environment(env) -> None:
     print(f"행동 차원: {env.action_space.shape[0]}")
     print("원본 관측 STATUS 구성")
     print("  [직전 수요, 직전 미충족, 보유 재고 X, 이동 중 도착 일정, 기간 t, sentiment]")
+    # DemandEngine. 매 기간 수요를 뽑고 goodwill(sentiment)을 갱신한다.
     engine = env.demand_engine
     print("goodwill")
     print(f"  사용: {engine.use_goodwill}")
@@ -61,16 +72,20 @@ def print_environment(env) -> None:
     print(f"  범위: {engine.gw_floor} ~ {engine.gw_cap}")
     print()
     print("노드")
+    # I0 시작재고, h 창고유지비, C 공장용량, o 운영비, v 수율. 시장·원자재는 속성 없음.
     for node_id in network.all_nodes:
         attrs = dict(network.graph.nodes[node_id])
         print(f"  {node_id} ({node_role(env, node_id)}): {attrs or '속성 없음'}")
     print()
     print("링크")
+    # p 가격, b 품절벌금, L 리드타임, g 파이프라인 유지비(받는 쪽, 매 기간 Y에 부과).
+    # demand_dist 는 scipy Poisson 객체. 주소 0x... 는 의미 없고 분포 종류만 보면 된다.
     for src, dst, attrs in network.graph.edges(data=True):
         printable = {k: v for k, v in attrs.items()}
         print(f"  {src} -> {dst}: {printable}")
     print()
     print("행동 한 칸이 의미하는 발주 링크")
+    # action[i] = reorder_links[i] 발주량. 1→0 판매 링크는 행동에 없음.
     for i, (src, dst) in enumerate(network.reorder_links):
         lead = network.lead_times[(src, dst)]
         print(
@@ -96,10 +111,12 @@ def print_environment(env) -> None:
     print("     한 기간 보상 r = 세 노드 P의 합. 시장·원자재는 이익을 안 계산")
     print()
     print("원본 보상 공식")
-    print("  각 노드 이익 P = α^t × (SR − PC − OC − HC − UP − FK)")
+    print("  한 노드 이익 P = α^t × (SR − PC − OC − HC − UP − FK)")
+    print("  한 기간 보상 r_t = P_소매 + P_유통 + P_공장")
     print("  오늘 번 돈 = 판 돈 − 오늘 나간 비용들")
-    print("  r_t : 기간 t의 보상 (reward). 세 노드 P를 더한 값")
+    print("  r_t : 기간 t의 보상 (reward)")
     print("  α   : 할인율 (alpha). Serial-v0 기본값 1 → 할인 없음, α^t = 1")
+    print("        그래서 여기선 r_t = (소매 이익) + (유통 이익) + (공장 이익)")
     print()
     print("  SR (Sales Revenue, 매출)     = Σ 가격p × 판매S")
     print("  PC (Purchase Cost, 구매비)   = Σ 가격p × 발주R")
@@ -114,6 +131,10 @@ def print_environment(env) -> None:
 
 
 def inventory_by_node(env, period: int) -> dict[int, float]:
+    """기간 period 의 창고 재고 X. main_nodes = 소매1·유통2·공장3 (시장·원자재 제외).
+
+    X 열 번호와 노드 id 가 다를 수 있어 node_map 으로 칸을 찾는다.
+    """
     return {
         node_id: float(env.X[period, env.network.node_map[node_id]])
         for node_id in env.network.main_nodes
@@ -121,6 +142,13 @@ def inventory_by_node(env, period: int) -> dict[int, float]:
 
 
 def receipts_by_node(env, period: int) -> dict[int, float]:
+    """오늘(period) 각 창고로 들어온 입고량. 오늘 발주가 아니라 L기간 전 발주가 도착한 양.
+
+    period: step 직전의 core.period. 0~29. '발주 다음날'이 아님.
+    reorder_idx: 발주 링크 번호 = action 번호 (0 유통→소매, 1 공장→유통, 2 원자재→공장).
+    R[period - L, reorder_idx]: 그 링크에서 L기간 전에 시킨 양. 그게 오늘 입고.
+    period - L < 0 이면 에피소드 시작 전이라 입고 0.
+    """
     receipts = {}
     for node_id in env.network.main_nodes:
         incoming = 0.0
@@ -144,6 +172,7 @@ def outflow_by_node(env, period: int) -> dict[int, float]:
 
 
 def pipeline_stock(env, period: int) -> dict[tuple[int, int], float]:
+    """링크별 이동 중 재고 Y. 유지비 g 는 이 양에 매 기간, 받는 쪽 노드 이익에서 깎인다."""
     return {
         edge: float(env.Y[period, env.network.reorder_map[edge]])
         for edge in env.network.reorder_links
@@ -171,6 +200,7 @@ def pipeline_arrivals_at_start(env, period: int) -> list[tuple]:
 
 
 def last_demand_and_backlog(env, period: int) -> tuple[float, float]:
+    """관측 앞 두 칸. 원본은 이번 기간 수요를 아직 안 뽑아서 직전 기간 D, U 를 준다."""
     if period > 0:
         return float(env.D[period - 1, 0]), float(env.U[period - 1, 0])
     return 0.0, 0.0
@@ -233,6 +263,7 @@ def collect_reward_terms(env, period: int) -> dict:
             hc_lines.append(
                 f"  {role} 보유 {node_id}: {hold_rate:.3f} × {on_hand:.2f} = {on_hand_cost:.4f}"
             )
+            # 파이프라인 유지비 g×Y 는 보내는 쪽이 아니라 받는 쪽(node_id) HC 에 들어간다.
             for pred_idx, reorder_idx, _lead in env.network.pred_reorder_indices[node_id]:
                 pred_id = env.network.idx_to_node[pred_idx]
                 pipeline_rate = float(env.network.graph.edges[(pred_id, node_id)]["g"])
@@ -248,6 +279,7 @@ def collect_reward_terms(env, period: int) -> dict:
             shipped = sum(float(env.S[period, net_idx]) for _, net_idx in env.network.succ_network_indices[node_id])
             op_rate = float(env.network.graph.nodes[node_id]["o"])
             yield_rate = float(env.network.graph.nodes[node_id]["v"])
+            # OC = (o/v)×출하. o=가공비, v=수율. Serial 은 v=1 이라 0.01×공장출하.
             node_operating = (op_rate / yield_rate) * shipped
             operating_cost += node_operating
             oc_lines.append(
@@ -300,8 +332,9 @@ def collect_reward_terms(env, period: int) -> dict:
 
 
 def print_reward_formula(terms: dict, reward: float, info: dict, period: int) -> None:
-    print("공식  r = α^t × (SR − PC − OC − HC − UP − FK)")
-    print("  r=보상, α=할인(여기 1), SR=매출, PC=구매비, OC=운영비, HC=유지비, UP=품절벌금, FK=고정발주비(여기 0)")
+    print("공식  한 노드 P = α^t × (SR − PC − OC − HC − UP − FK)")
+    print("      r_t = P_소매 + P_유통 + P_공장   (여기 α=1 이라 할인은 없음)")
+    print("  r_t=기간 보상, α=할인, SR=매출, PC=구매비, OC=운영비, HC=유지비, UP=품절벌금, FK=고정발주비(여기 0)")
     print("매출 SR (Sales Revenue) = Σ p × S")
     for line in terms["sr_lines"]:
         print(line)
@@ -342,6 +375,7 @@ def print_reward_formula(terms: dict, reward: float, info: dict, period: int) ->
 
 
 def print_period(env, period: int, action: np.ndarray, reward: float, info: dict) -> None:
+    """한 기간 출력. period 는 step 직전 값(0~29). step 이 끝난 뒤 행렬 R,X,D 를 읽는다."""
     retail_idx = 0
     retail_link = env.network.retail_links[retail_idx]
     retail_net_idx = env.network.network_map[retail_link]
@@ -445,6 +479,7 @@ def main() -> None:
     print()
 
     for _ in range(args.steps):
+        # step 전에 읽어야 이 기간 번호가 맞다. step 끝나면 core.period 가 1 오른다.
         period = core.period
         _obs, reward, terminated, truncated, info = env.step(action)
         print_period(core, period, action, float(reward), info)
