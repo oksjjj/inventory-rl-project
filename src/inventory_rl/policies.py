@@ -210,7 +210,11 @@ class BaseStockPolicy:
             order_needed = max(0.0, float(target - inventory_position))
             n_suppliers = len(info["incoming"])
             if n_suppliers > 0:
-                # Serial-v0 는 노드마다 공급자가 하나라 그냥 그 링크에 전부 넣는다.
+                # order_needed 는 노드 창고 기준 총량 (S − IP). 링크마다 그 양을 넣으면
+                # 합이 n배가 되어 S 를 넘는다. 그래서 합이 order_needed 가 되게 나눈다.
+                # 예: 모자란 30, 공급자 2명 → 각 15. 각 30 이면 총 60.
+                # Serial 은 공급자 1명 → 나누기 1, 그 링크에 전부.
+                # 균등 분할은 원본 휴리스틱의 단순 규칙이다. L·가격이 달라도 구분하지 않는다.
                 per_supplier = order_needed / n_suppliers
                 for idx, _ in info["incoming"]:
                     actions[idx] = per_supplier
