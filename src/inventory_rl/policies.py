@@ -146,9 +146,11 @@ class BaseStockPolicy:
             # cr 이 클수록 “품절이 유지비보다 아프다” → 목표 재고를 높게.
             # 예: penalty=0.5, holding=0.02 → cr=0.5/0.52 ≈ 0.96
             critical_ratio = penalty / (penalty + holding) if (penalty + holding) > 0 else service_level
-            # 이 노드로 들어오는 발주 링크와, 그중 가장 긴 리드타임.
+            # 이 노드로 들어오는 발주 링크만. (action 칸 번호 i, 링크 튜플)
+            # edge[1]==node 가 “도착지가 나”. 소매1 → [(0, (2,1))], 유통2 → [(1, (3,2))]
             incoming = [(i, edge) for i, edge in enumerate(network.reorder_links) if edge[1] == node]
-            # 들어오는 링크의 리드타임. 소매·유통 (2,1)/(3,2)["L"]=4, 공장 (4,3)["L"]=0
+            # 위에서 모은 링크의 L 중 최댓값. Serial 은 링크가 하나라 그 L 그대로.
+            # 소매·유통 L=4, 공장 L=0. 링크가 없으면 default 0
             max_lead = max((core.graph.edges[edge]["L"] for _, edge in incoming), default=0)
             self.node_info[node] = {
                 "cr": critical_ratio,
