@@ -115,9 +115,11 @@ class BaseStockPolicy:
         for node in self.main_nodes:
             holding = core.graph.nodes[node].get("h", 0.1)  # 소매 h=0.03, 유통 0.02, 공장 0.01
             if node in network.retail:
-                # 소매 링크의 미충족 벌점 b. 고객에게 못 주면 이만큼 깎인다.
+                # 소매의 품절비용 penalty = 고객 링크의 벌점 b 중 최댓값.
+                # successors(1) = [0]  (소매가 파는 곳 = 시장)
+                # edges[(1, 0)]["b"] = 0.1
+                # max(0.1) = 0.1. 링크가 하나도 없으면 default 0.5
                 penalty = max(
-                    # 소매→시장 (1,0)["b"]=0.1. 못 준 1단위당 벌점
                     (core.graph.edges[(node, k)].get("b", 0) for k in core.graph.successors(node)),
                     default=0.5,
                 )
