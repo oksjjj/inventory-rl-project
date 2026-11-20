@@ -78,9 +78,10 @@ def print_environment(env) -> None:
         print(f"  {node_id} ({node_role(env, node_id)}): {attrs or '속성 없음'}")
     print()
     print("링크")
+    # graph.edges[(보내는 노드, 받는 노드)] 가 그 화살표 속성. yaml 의 p, b, L, g.
     # p 가격, b 품절벌금, L 리드타임, g 파이프라인 유지비(받는 쪽, 매 기간 Y에 부과).
     # demand_dist 는 scipy Poisson 객체. 주소 0x... 는 의미 없고 분포 종류만 보면 된다.
-    for src, dst, attrs in network.graph.edges(data=True):
+    for src, dst, attrs in network.graph.edges(data=True):  # 4개: 1→0, 2→1, 3→2, 4→3
         printable = {k: v for k, v in attrs.items()}
         print(f"  {src} -> {dst}: {printable}")
     print()
@@ -285,6 +286,7 @@ def collect_reward_terms(env, period: int) -> dict:
         # 소매 1→0 p=2.0, 유통 2→1 p=1.5, 공장 3→2 p=1.0
         for succ_idx, net_idx in env.network.succ_network_indices[node_id]:
             succ_id = env.network.idx_to_node[succ_idx]  # 예: 소매면 시장 0
+            # edges[(출발, 도착)]["p"] = 이 링크 판매가. 소매→시장이면 2.0
             price = float(env.network.graph.edges[(node_id, succ_id)]["p"])
             shipped = float(env.S[period, net_idx])  # 오늘 그 링크 출하/판매
             value = price * shipped  # 예: 소매 24 × 2.0 = 48
@@ -297,6 +299,7 @@ def collect_reward_terms(env, period: int) -> dict:
         # 소매는 유통에서 삼 p=1.5, 유통은 공장 p=1.0, 공장은 원자재 p=0.5
         for pred_idx, reorder_idx, _lead in env.network.pred_reorder_indices[node_id]:
             pred_id = env.network.idx_to_node[pred_idx]  # 예: 소매면 유통 2
+            # 윗링크 구매가. 소매가 유통에서 사면 (2,1)["p"]=1.5
             price = float(env.network.graph.edges[(pred_id, node_id)]["p"])
             ordered = float(env.R[period, reorder_idx])  # 오늘 실제 발주. 요청이 아님
             value = price * ordered  # 예: 소매가 20 시키면 1.5 × 20 = 30
@@ -320,6 +323,7 @@ def collect_reward_terms(env, period: int) -> dict:
             # 예: 유통→소매 g=0.01, Y=20 이면 소매 HC 에 0.20 이 들어감
             for pred_idx, reorder_idx, _lead in env.network.pred_reorder_indices[node_id]:
                 pred_id = env.network.idx_to_node[pred_idx]
+                # 이 링크로 오는 중 유지비 g. (2,1)["g"]=0.01, (3,2)=0.005, (4,3)=0
                 pipeline_rate = float(env.network.graph.edges[(pred_id, node_id)]["g"])
                 in_transit = float(env.Y[period + 1, reorder_idx])  # 오늘 끝난 뒤 이동 중 합
                 pipeline_cost = pipeline_rate * in_transit
@@ -346,7 +350,8 @@ def collect_reward_terms(env, period: int) -> dict:
             for succ_id in env.network.graph.successors(node_id):
                 if (node_id, succ_id) in env.network.retail_map:  # 1→0 만
                     retail_idx = env.network.retail_map[(node_id, succ_id)]  # Serial 은 0
-                    penalty_rate = float(env.network.graph.edges[(node_id, succ_id)]["b"])  # 0.1
+                    # 판매 링크 품절벌금. (1,0)["b"]=0.1. 발주 링크에는 b 가 없음
+                    penalty_rate = float(env.network.graph.edges[(node_id, succ_id)]["b"])
                     unmet = float(env.U[period, retail_idx])  # 오늘 못 준 양. 수요 − 판매
                     value = penalty_rate * unmet  # 예: 못 준 14 × 0.1 = 1.4
                     backlog_penalty += value
@@ -357,6 +362,7 @@ def collect_reward_terms(env, period: int) -> dict:
         # FK 고정발주비: 그 링크에 발주가 있으면 K 한 번. Serial yaml 에 K 가 없어 항상 0
         for pred_idx, reorder_idx, _lead in env.network.pred_reorder_indices[node_id]:
             pred_id = env.network.idx_to_node[pred_idx]
+            # 고정발주비 K. Serial yaml 에 키 자체가 없어서 get(..., 0.0) → 0
             setup_cost = float(env.network.graph.edges[(pred_id, node_id)].get("K", 0.0))
             ordered = float(env.R[period, reorder_idx])
             value = setup_cost if setup_cost > 0.0 and ordered > 0.0 else 0.0

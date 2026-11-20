@@ -56,15 +56,18 @@ class BaseStockPolicy:
             if node in network.retail:
                 # 소매 링크의 미충족 벌점 b. 고객에게 못 주면 이만큼 깎인다.
                 penalty = max(
+                    # 소매→시장 (1,0)["b"]=0.1. 못 준 1단위당 벌점
                     (core.graph.edges[(node, k)].get("b", 0) for k in core.graph.successors(node)),
                     default=0.5,
                 )
             else:
                 # 위쪽 노드는 b 가 없다. 팔 가격 − 살 가격(마진)을 품절 비용 대신 쓴다.
                 sell_prices = [
+                    # 아래로 팔 때 가격. 유통이면 (2,1)["p"]=1.5
                     core.graph.edges.get((node, k), {}).get("p", 0) for k in core.graph.successors(node)
                 ]
                 buy_prices = [
+                    # 위로 살 때 가격. 유통이면 (3,2)["p"]=1.0
                     core.graph.edges.get(edge, {}).get("p", 0)
                     for edge in network.reorder_links
                     if edge[1] == node
@@ -76,6 +79,7 @@ class BaseStockPolicy:
             critical_ratio = penalty / (penalty + holding) if (penalty + holding) > 0 else service_level
             # 이 노드로 들어오는 발주 링크와, 그중 가장 긴 리드타임.
             incoming = [(i, edge) for i, edge in enumerate(network.reorder_links) if edge[1] == node]
+            # 들어오는 링크의 리드타임. 소매·유통 (2,1)/(3,2)["L"]=4, 공장 (4,3)["L"]=0
             max_lead = max((core.graph.edges[edge]["L"] for _, edge in incoming), default=0)
             self.node_info[node] = {
                 "cr": critical_ratio,
