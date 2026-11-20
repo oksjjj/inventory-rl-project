@@ -483,11 +483,11 @@ def print_period(env, period: int, action: np.ndarray, reward: float, info: dict
     retail_idx = 0  # Serial 은 시장 링크가 하나. D, U 의 열 0
     retail_link = env.network.retail_links[retail_idx]  # (1, 0)
     retail_net_idx = env.network.network_map[retail_link]  # S 에서 소매 판매 칸
-    opening = inventory_by_node(env, period)  # step 시작 창고 X[t]
-    closing = inventory_by_node(env, period + 1)  # step 끝 창고 X[t+1]
-    receipts = receipts_by_node(env, period)
-    outflows = outflow_by_node(env, period)
-    terms = collect_reward_terms(env, period)
+    opening = inventory_by_node(env, period)  # {노드: X[t]}. 오늘 시작 창고. 예: 소매 100
+    closing = inventory_by_node(env, period + 1)  # {노드: X[t+1]}. 오늘 끝 창고. 예: 소매 76
+    receipts = receipts_by_node(env, period)  # {노드: 오늘 입고}. L기간 전 R. 예: L=4면 4기간 전 발주
+    outflows = outflow_by_node(env, period)  # {노드: 오늘 출고}. 유통/공장은 출하, 소매는 판매
+    terms = collect_reward_terms(env, period)  # SR,PC,OC,HC,UP,FK 항목. 합치면 env.step 보상과 같아야 함
     demand = float(env.D[period, retail_idx])  # D=오늘 소매 수요
     sales = float(env.S[period, retail_net_idx])  # S=오늘 소매→시장 판매
     backlog = float(env.U[period, retail_idx])  # U=오늘 미충족
