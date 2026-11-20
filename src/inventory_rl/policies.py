@@ -152,10 +152,15 @@ class BaseStockPolicy:
             # 위에서 모은 링크의 L 중 최댓값. Serial 은 링크가 하나라 그 L 그대로.
             # 소매·유통 L=4, 공장 L=0. 링크가 없으면 default 0
             max_lead = max((core.graph.edges[edge]["L"] for _, edge in incoming), default=0)
+            # 노드마다 매 기간 안 바뀌는 것만 미리 저장. get_action 이 매 기간 꺼내 쓴다.
+            # 목표 수요 λ 자체는 여기 없다. λ = (어제 수요 d)×(max_L+1) 이라 d 는 관측에서 온다.
+            # cr: 뉴스벤더 분위수. S = poisson.ppf(cr, λ). 유통 ≈0.96
+            # max_L: λ 의 (L+1). 소매·유통 4, 공장 0
+            # incoming: Y 합산 + 발주를 행동 벡터 몇 번째 칸에 넣을지. 소매 [(0,(2,1))]
             self.node_info[node] = {
                 "cr": critical_ratio,
-                "max_L": max_lead,  # 소매·유통은 L=4, 공장은 L=0
-                "incoming": incoming,  # (행동 벡터의 몇 번째 칸, 링크)
+                "max_L": max_lead,
+                "incoming": incoming,
             }
 
     def get_action(self, obs: np.ndarray, env) -> np.ndarray:
