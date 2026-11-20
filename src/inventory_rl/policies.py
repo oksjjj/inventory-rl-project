@@ -97,7 +97,16 @@ class BaseStockPolicy:
         # Gymnasium Wrapper 를 벗겨 원본 CoreEnv 행렬(X, Y, U)에 접근한다.
         core = env.unwrapped
         self.core = core
-        network = core.network  # 공급망 지도. market=[0], rawmat=[4], retail=[1], factory=[3]
+        # core.network: 누가 누구와 연결됐는지 (재고 수량 X 가 아님).
+        # 역할 속성은 “그 역할인 노드 번호” list. Serial-v0 실제 값:
+        #   network.market  = [0]     시장 (수요가 나가는 곳)
+        #   network.retail  = [1]     소매
+        #   network.distrib = [1, 2]  vendor 분류: I0 있고 C 없음. 우리가 말하는 유통은 2 뿐.
+        #                            소매 1 도 이 리스트에 들어감 (retail 과 겹침)
+        #   network.factory = [3]     공장
+        #   network.rawmat  = [4]     원자재
+        # 예: if node_id in network.market  →  0 인지 본다. 재고가 0 인 것과 무관.
+        network = core.network
         # 시장(0)·원자재(4)는 발주 대상이 아니다. 소매·유통·공장만 남긴다.
         self.main_nodes = sorted(
             n for n in core.graph.nodes() if n not in network.market and n not in network.rawmat
