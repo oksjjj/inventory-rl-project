@@ -497,15 +497,15 @@ def print_period(env, period: int, action: np.ndarray, reward: float, info: dict
     print(f"기간 {period}")
     print("=" * 60)
 
-    last_demand, last_backlog = last_demand_and_backlog(env, period)
-    start_pipeline = pipeline_stock(env, period)
+    last_demand, last_backlog = last_demand_and_backlog(env, period)  # 관측 앞 두 칸. 어제 D, U. 오늘 수요 아님
+    start_pipeline = pipeline_stock(env, period)  # {링크: Y[t]}. 오늘 시작 때 이동 중 합
 
     section("STATUS")
     print("원본 관측이 담는 값")
     print(f"  직전 수요: {last_demand:.2f}")
     print(f"  직전 미충족: {last_backlog:.2f}")
     print(f"  기간 t: {period}")
-    print(f"  sentiment: {observation_sentiment(env, period):.3f}")
+    print(f"  sentiment: {observation_sentiment(env, period):.3f}")  # 행동 직전 값. 어제 GW. period=0 이면 1.0
     print("보유 재고 X[t]")
     for node_id, qty in opening.items():
         print(f"  노드 {node_id} ({node_role(env, node_id)}): {qty:.2f}")
@@ -514,7 +514,7 @@ def print_period(env, period: int, action: np.ndarray, reward: float, info: dict
         lead_time = env.network.lead_times[(src, dst)]
         print(f"  {src}->{dst} (L={lead_time}): {qty:.2f}")
     print("도착 일정 (관측 파이프라인, 0기간 후 = 이번 기간 입고)")
-    arrival_rows = pipeline_arrivals_at_start(env, period)
+    arrival_rows = pipeline_arrivals_at_start(env, period)  # Y 합을 며칠 후 도착으로 나눈 일정. 오늘 발주 없음
     if arrival_rows:
         for (src, dst), _arrivals, total, schedule in arrival_rows:
             print(f"  {src}->{dst}: 합 {total:.2f}  [{schedule}]")
