@@ -216,6 +216,13 @@ class BaseStockPolicy:
                 # Serial 은 공급자 1명 → 나누기 1, 그 링크에 전부.
                 # 균등 분할은 원본 휴리스틱의 단순 규칙이다. L·가격이 달라도 구분하지 않는다.
                 per_supplier = order_needed / n_suppliers
+                # incoming = [(행동 벡터 칸 번호, 링크)]. __init__ 에서 reorder_links 순번 i.
+                # Serial reorder_links=[(2,1),(3,2),(4,3)] 이라
+                #   소매1 → [(0, (2,1))]  idx=0  유통→소매
+                #   유통2 → [(1, (3,2))]  idx=1  공장→유통
+                #   공장3 → [(2, (4,3))]  idx=2  원자재→공장
+                # _ 는 링크 튜플. 칸 번호만 있으면 되어 안 쓴다.
+                # 예: 소매 order_needed=10 → actions[0]=10 → [10, ?, ?]
                 for idx, _ in info["incoming"]:
                     actions[idx] = per_supplier
         return clip_order(actions)
