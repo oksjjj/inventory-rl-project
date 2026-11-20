@@ -576,14 +576,22 @@ def main() -> None:
     core = env.unwrapped  # Wrapper 를 벗겨 X, Y, R 행렬에 바로 접근
 
     print_environment(core)
-    action = np.full(core.action_space.shape, args.order, dtype=np.float64)  # 예: [20, 20, 20]
+    # 매 기간 넣을 발주 3칸. 관측을 안 보고 항상 같은 숫자.
+    # action_space.shape = (3,)  →  링크 3개: 유통→소매, 공장→유통, 원자재→공장
+    # np.full(모양, 값): 그 모양의 배열을 만들고 모든 칸을 값으로 채움
+    # np.full((3,), 20)  →  [20, 20, 20]  (np.array([20, 20, 20]) 과 같음)
+    # --order 30 이면 [30, 30, 30]. 이건 요청량이고, 실제 R 은 재고·용량 때문에 더 작을 수 있음
+    action = np.full(core.action_space.shape, args.order, dtype=np.float64)
     print("환경: GymInvMgmt/Serial-v0")
     print(f"이번 실행 정책: 매 기간 모든 링크에 {args.order} 발주")
     print(f"seed={args.seed}, 출력 기간={args.steps}")
     print()
 
     for _ in range(args.steps):
-        # step 전에 읽어야 이 기간 번호가 맞다. step 끝나면 core.period 가 1 오른다.
+        # core 는 같은 환경 객체. 다시 unwrapped 할 필요 없음.
+        # env.step 이 끝나면 원본이 core.period += 1 을 하므로 값이 자동으로 오른다.
+        # period = core.period 는 그 순간 숫자만 복사. step 전에 읽어야
+        # 오늘 행렬 R[0], D[0] 을 출력할 번호가 남는다. step 후 core.period 는 이미 1.
         period = core.period
         _obs, reward, terminated, truncated, info = env.step(action)
         print_period(core, period, action, float(reward), info)
