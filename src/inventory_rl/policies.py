@@ -164,12 +164,20 @@ class BaseStockPolicy:
             }
 
     def get_action(self, obs: np.ndarray, env) -> np.ndarray:
+        # Wrapper 를 벗겨 CoreEnv. X, Y, U, period 를 직접 읽으려고.
         core = env.unwrapped
+        # 지금이 몇 번째 기간인지. reset 직후 0. step 안에서 1 증가.
+        # 아래 X[period], Y[period] 의 행 번호로 쓴다.
         period = core.period
+        # obs 가 (1,15) 이어도 (15,) 로 펼친다. 신경망과 달리 여기선 정규화 안 함.
         obs_vec = np.asarray(obs, dtype=float).reshape(-1)
-        last_demand = float(obs_vec[0]) if obs_vec.size else 0.0  # 관측 [0] = 직전 수요
-        # reset 직후는 직전 수요가 0이다. 그때만 기본 평균 20을 쓴다.
+        # 원본 관측 첫 칸 = 어제 수요 D. 빈 배열이면 0.
+        last_demand = float(obs_vec[0]) if obs_vec.size else 0.0
+        # reset 직후는 어제 수요가 아직 없어서 0. 그때만 기본 평균 20.
+        # 기간 1부터는 어제 나온 숫자. 예: 18 → 18,  0 → 20
         mean_demand = last_demand if last_demand > 0 else 20.0
+        # 발주 3칸을 0으로 시작. 아래 루프가 소매·유통·공장 칸을 채운다.
+        # reorder_links = [(2,1), (3,2), (4,3)] → 길이 3 → [0, 0, 0]
         actions = np.zeros(len(core.network.reorder_links), dtype=np.float64)
 
         for node in self.main_nodes:
