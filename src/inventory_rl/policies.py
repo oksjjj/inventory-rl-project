@@ -138,7 +138,10 @@ class BaseStockPolicy:
                     for edge in network.reorder_links
                     if edge[1] == node
                 ]
-                # 예: 유통은 팔 1.5, 사 1.0 → penalty=0.5
+                # 환경 보상에는 유통·공장 U, b 가 없다. 소매만 UP=b×U.
+                # 그래도 이 정책은 모든 노드에 cr = penalty/(penalty+h) 가 필요해서
+                # “못 내려보내면 잃는 마진”(팔가격 − 살가격)을 품절비용 대신 쓴다.
+                # 예: 유통 팔 1.5 − 사 1.0 = 0.5. 마진이 0 이하면 바닥 0.5
                 penalty = max(max(sell_prices, default=0) - min(buy_prices, default=0), 0.5)
             # cr 이 클수록 “품절이 유지비보다 아프다” → 목표 재고를 높게.
             # 예: penalty=0.5, holding=0.02 → cr=0.5/0.52 ≈ 0.96
