@@ -23,6 +23,27 @@ CoreEnv 행렬. 행은 기간. 아래 주석의 t 는 그 칸의 기간 번호.
     예: 유통이 소매로 20 을 보내면 R[t, 0]=20 (소매가 시킴) 이고
     같은 20 이 S 의 유통→소매 칸에도 들어간다 (유통이 보냄).
     다른 점은 S 에만 소매→시장 판매가 있다는 것. 판매에는 R 이 없다.
+
+env.network 는 공급망 지도. 재고 수량(X)이 아니라 누가 누구와 연결됐는지.
+Serial-v0:
+    market=[0]  retail=[1]  distrib=[2]  factory=[3]  rawmat=[4]
+    main_nodes=[1,2,3]     이익·창고를 계산하는 노드. 시장·원자재 제외
+    all_nodes=[0,1,2,3,4]
+    reorder_links=[(2,1),(3,2),(4,3)]   발주 가능한 링크 = action 순서
+    retail_links=[(1,0)]               판매 링크. 행동에 없음
+    lead_times[(2,1)]=4, [(3,2)]=4, [(4,3)]=0
+    reorder_map[(2,1)]=0               링크 튜플 → R,Y 열 번호
+    network_map[(1,0)]=0               링크 튜플 → S 열 번호 (판매 포함 4칸)
+    node_map[노드id]=X 열, idx_to_node[열]=노드id. Serial 에선 둘 다 0~4 그대로
+    pred_reorder_indices[노드]         그 노드로 들어오는 발주 링크
+                                       [(윗노드 열, R열, L), ...]
+                                       예: 소매1 → [(유통열2, R열0, L=4)]
+    succ_network_indices[노드]         그 노드에서 아래로 나가는 링크
+                                       [(아래노드 열, S열), ...]
+                                       예: 소매1 → [(시장열0, S열0)]  판매
+                                       예: 유통2 → [(소매열1, S열1)]  출하
+    retail_map[(1,0)]=0                판매 링크 → D,U 열
+    graph.nodes / graph.edges          yaml 속성. 노드 h,C,o,v 와 링크 p,b,L,g
 """
 
 from __future__ import annotations
@@ -301,6 +322,7 @@ def collect_reward_terms(env, period: int) -> dict:
 
         # SR 매출: 오늘 아래로 보낸 양 × 파는 가격 p
         # 소매 1→0 p=2.0, 유통 2→1 p=1.5, 공장 3→2 p=1.0
+        # 아래로 나가는 링크. 소매면 [(시장 열, S 판매 열)], 유통이면 [(소매 열, S 출하 열)]
         for succ_idx, net_idx in env.network.succ_network_indices[node_id]:
             succ_id = env.network.idx_to_node[succ_idx]  # 예: 소매면 시장 0
             # edges[(출발, 도착)]["p"] = 이 링크 판매가. 소매→시장이면 2.0
@@ -314,6 +336,7 @@ def collect_reward_terms(env, period: int) -> dict:
 
         # PC 구매비: 오늘 시킨 발주 R × 윗단계에서 사는 가격 p. 도착이 아니라 발주 시점 비용
         # 소매는 유통에서 삼 p=1.5, 유통은 공장 p=1.0, 공장은 원자재 p=0.5
+        # 위로 들어오는 발주 링크. 소매면 [(유통 열, R열0, L=4)]
         for pred_idx, reorder_idx, _lead in env.network.pred_reorder_indices[node_id]:
             pred_id = env.network.idx_to_node[pred_idx]  # 예: 소매면 유통 2
             # 윗링크 구매가. 소매가 유통에서 사면 (2,1)["p"]=1.5
@@ -327,7 +350,7 @@ def collect_reward_terms(env, period: int) -> dict:
 
         # HC 유지비 = 창고 h×X[t+1] + 이동 중 g×Y[t+1]. 오늘 끝난 뒤 남은 양에 붙음
         # main_nodes 에는 원자재가 없어서 이 if 는 항상 참. 원본 step 과 같은 가드
-        if node_id not in env.network.rawmat:
+        if node_id not in env.network.rawmat:  # rawmat=[4]. main_nodes 에는 없어서 항상 참
             node_idx = env.network.node_map[node_id]
             hold_rate = float(env.network.graph.nodes[node_id]["h"])  # 소매 0.03, 유통 0.02, 공장 0.01
             on_hand = float(env.X[period + 1, node_idx])  # X=창고 재고. step 끝난 뒤
@@ -351,7 +374,7 @@ def collect_reward_terms(env, period: int) -> dict:
                 )
 
         # OC 운영비: 공장만. 원자재 1단위 가공비 o 를 출하에 곱함
-        if node_id in env.network.factory:
+        if node_id in env.network.factory:  # factory=[3]. 용량 C 가 있는 노드만 운영비 OC
             shipped = sum(float(env.S[period, net_idx]) for _, net_idx in env.network.succ_network_indices[node_id])  # S=공장 출하
             op_rate = float(env.network.graph.nodes[node_id]["o"])  # 0.01
             yield_rate = float(env.network.graph.nodes[node_id]["v"])  # 1.0
@@ -363,7 +386,7 @@ def collect_reward_terms(env, period: int) -> dict:
             )
 
         # UP 품절벌금: 소매만. 고객에게 못 준 U × 벌점 b
-        if node_id in env.network.retail:
+        if node_id in env.network.retail:  # retail=[1]. 고객에게 못 준 양만 품절벌금 UP
             for succ_id in env.network.graph.successors(node_id):
                 if (node_id, succ_id) in env.network.retail_map:  # 1→0 만
                     retail_idx = env.network.retail_map[(node_id, succ_id)]  # Serial 은 0

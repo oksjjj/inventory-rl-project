@@ -45,7 +45,7 @@ class BaseStockPolicy:
         # Gymnasium Wrapper 를 벗겨 원본 CoreEnv 행렬(X, Y, U)에 접근한다.
         core = env.unwrapped
         self.core = core
-        network = core.network
+        network = core.network  # 공급망 지도. market=[0], rawmat=[4], retail=[1], factory=[3]
         # 시장(0)·원자재(4)는 발주 대상이 아니다. 소매·유통·공장만 남긴다.
         self.main_nodes = sorted(
             n for n in core.graph.nodes() if n not in network.market and n not in network.rawmat
