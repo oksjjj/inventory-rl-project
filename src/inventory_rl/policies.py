@@ -27,18 +27,20 @@ class ConstantOrderPolicy:
 
 
 class BaseStockPolicy:
-    """재고 위치를 목표 S까지 채우는 정책.
+    """목표 재고 S 까지, 부족한 만큼만 발주한다. 매 기간 20 을 넣는 고정 발주와 다름.
 
-    재고 위치 = 지금 들고 있는 것 + 아직 오는 중 − 이미 못 준 것
-              = X + Y − U
+    창고만 보면 안 된다. 오는 중인 것도 내 것, 고객에게 못 준 것은 빚이다.
+        재고 위치 = 창고 X + 이동 중 Y − 못 준 양 U
+    예: 창고 80, 오는 중 40, 빚 0 → 위치 120. 목표 130 이면 10 만 시킨다.
+        이미 130 이상이면 0.
 
-    목표 S 는 뉴스벤더 식이다.
-        임계비율 cr = 품절 비용 / (품절 비용 + 유지비)
-        S = Poisson(리드타임 동안 수요).의 cr-분위수
-    예: 유지비가 싸고 품절이 비싸면 cr≈1, S를 높게 잡는다.
+    목표 S 는 “품절이 유지비보다 얼마나 아픈지”(cr)로 정한다.
+        cr = 품절비용 / (품절비용 + 유지비)
+        S  = 리드타임 동안 수요(Poisson)에서 cr 에 해당하는 양
+    품절이 더 아프면 cr 이 1 에 가깝고, S 를 높게 잡는다.
 
-    수요 평균은 시뮬레이터의 진짜 μ(t)가 아니라 관측의 직전 수요만 쓴다.
-    그래서 기간 15에 수요가 갑자기 2배가 되어도, 그 사실을 미리 알 수는 없다.
+    수요 평균은 환경의 진짜 μ(t) 가 아니라 관측 첫 칸(어제 수요)이다.
+    기간 15 에 수요가 2 배가 되어도, 미리 알고 S 를 올려 두지는 못한다.
     """
 
     def __init__(self, env, service_level: float = 0.95) -> None:
@@ -99,10 +101,10 @@ class BaseStockPolicy:
         for node in self.main_nodes:
             info = self.node_info[node]
             node_idx = core.network.node_map[node]
-            # 주문이 도착하는 동안(L) 플러스 이번 기간(1)만큼의 수요를 커버한다.
-            # 예: 수요 20, L=4 → 20*5=100 을 Poisson 평균으로 씀
+            # 도착까지 L기간 + 오늘 1기간 동안 팔릴 양을 목표에 넣는다.
+            # 예: 어제 수요 20, L=4 → 평균 20*5=100. 이 평균의 Poisson 에서 S 를 뽑음
             lead_demand = mean_demand * (info["max_L"] + 1)
-            # Poisson 누적분포가 cr 이 되는 지점 = 목표 재고 S.
+            # ppf(cr, 평균): “이 수요를 cr 확률로 감당하려면 재고가 얼마 있어야 하나”
             target = poisson.ppf(info["cr"], lead_demand) if lead_demand > 0 else 0.0
             on_hand = core.X[period, node_idx]  # X=창고 재고. 지금 들고 있는 양
             in_transit = sum(core.Y[period, i] for i, _ in info["incoming"])  # Y=이동 중. 아직 안 도착한 합
