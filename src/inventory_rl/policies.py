@@ -190,12 +190,20 @@ class BaseStockPolicy:
             target = poisson.ppf(info["cr"], lead_demand) if lead_demand > 0 else 0.0
             on_hand = core.X[period, node_idx]  # X=창고 재고. 지금 들고 있는 양
             in_transit = sum(core.Y[period, i] for i, _ in info["incoming"])  # Y=이동 중. 아직 안 도착한 합
-            backlog = 0.0
+            backlog = 0.0  # 유통·공장·기간 0 은 빚이 없음. 아래는 소매만
             if node in core.network.retail and period > 0:
-                # 소매만 고객 미충족 U 가 있다. 이미 빚진 양은 목표에서 빼야 한다.
+                # 소매만 고객 미충족 U 가 있다. 이미 빚진 양은 IP 에서 뺀다.
+                # period>0: U[period-1] 을 읽으므로 reset 직후(period=0)는 어제가 없다.
                 for k in core.graph.successors(node):
                     if (node, k) in core.network.retail_map:
-                        backlog = core.U[period - 1, core.network.retail_map[(node, k)]]  # U=어제 미충족. 이미 빚진 양
+                        # U 행 = 어제, 열 = 판매 링크.
+                        # 지금 period 의 step 은 아직 안 돌아서 U[period] 는 비어 있다.
+                        # 그래서 어제 못 준 양 U[period-1] 을 읽는다.
+                        # retail_map: 판매 링크 → D,U 열. Serial 은 (1,0)→0 하나뿐.
+                        # 예: node=1, k=0, period=3, 어제 14 못 줌
+                        #     → U[2, retail_map[(1,0)]] = U[2, 0] = 14
+                        # IP = X+Y−14 가 되어 목표까지 14 더 발주하게 된다.
+                        backlog = core.U[period - 1, core.network.retail_map[(node, k)]]
             inventory_position = on_hand + in_transit - backlog  # 예: 80 + 40 - 0 = 120
             # 이미 S 이상이면 0. 모자라면 그 차이만 발주 (마이너스 발주는 없다).
             # 예: 목표 130, 위치 120 → 10 발주
