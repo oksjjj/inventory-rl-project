@@ -6,6 +6,16 @@
 
 이 파일에서 추가한 코드
     원본 값을 읽어서 한글로 풀어 쓰는 출력과, 보상 항목을 다시 더한 검증.
+
+CoreEnv 행렬. 행은 기간. 아래 주석의 t 는 그 칸의 기간 번호.
+    env.X[t, 노드열]  창고 재고. 열=노드 0~4. X[t] 시작, X[t+1] 끝
+    env.Y[t, 발주열]  이동 중 재고. 열=발주 링크 0~2. 아직 안 도착한 합
+    env.R[t, 발주열]  그 기간 실제 발주량. 입고가 아님. 입고는 R[t-L]
+    env.S[t, 링크열]  그 기간 출하/판매. 열=네트워크 링크 0~3 (판매 포함)
+    env.D[t, 판매열]  소매 수요. Serial 은 열 0 만
+    env.U[t, 판매열]  미충족 = 수요 − 판매
+    env.P[t, 노드열]  노드 이익. 한 기간 보상은 소매+유통+공장 P 의 합
+    env.GW[t]         기간 t 수요에 곱한 sentiment
 """
 
 from __future__ import annotations
@@ -138,7 +148,7 @@ def inventory_by_node(env, period: int) -> dict[int, float]:
     """
     return {
         # node_map[1]=1 이면 X[period, 1] 이 소매 창고. 예: period=0 → 100
-        node_id: float(env.X[period, env.network.node_map[node_id]])
+        node_id: float(env.X[period, env.network.node_map[node_id]])  # X=창고 재고
         for node_id in env.network.main_nodes  # 1, 2, 3
     }
 
@@ -158,7 +168,7 @@ def receipts_by_node(env, period: int) -> dict[int, float]:
         for _, reorder_idx, lead_time in env.network.pred_reorder_indices[node_id]:
             if period - lead_time >= 0:
                 # 예: period=5, L=4 → R[1, 열] 이 오늘 입고
-                incoming += float(env.R[period - lead_time, reorder_idx])
+                incoming += float(env.R[period - lead_time, reorder_idx])  # R=발주. L기간 전 발주가 오늘 입고
         receipts[node_id] = incoming
     return receipts
 
@@ -171,7 +181,7 @@ def outflow_by_node(env, period: int) -> dict[int, float]:
         shipped = 0.0
         # 이 노드에서 아래로 나가는 링크. net_idx 는 S 의 열 번호 (0~3)
         for _, net_idx in env.network.succ_network_indices[node_id]:
-            shipped += float(env.S[period, net_idx])  # 오늘 그 링크로 보낸 양
+            shipped += float(env.S[period, net_idx])  # S=출하/판매. 오늘 그 링크로 보낸 양
         yield_rate = env.network.graph.nodes[node_id].get("v", 1.0)
         outflows[node_id] = shipped / yield_rate  # Serial v=1 이라 shipped 그대로
     return outflows
@@ -181,7 +191,7 @@ def pipeline_stock(env, period: int) -> dict[tuple[int, int], float]:
     """링크별 이동 중 재고 Y. 유지비 g 는 이 양에 매 기간, 받는 쪽 노드 이익에서 깎인다."""
     return {
         # edge=(2,1) 이면 reorder_map=0. Y[period, 0] 이 유통→소매 이동 중 합
-        edge: float(env.Y[period, env.network.reorder_map[edge]])
+        edge: float(env.Y[period, env.network.reorder_map[edge]])  # Y=이동 중 재고 합
         for edge in env.network.reorder_links  # (2,1), (3,2), (4,3)
     }
 
@@ -201,7 +211,7 @@ def pipeline_arrivals_at_start(env, period: int) -> list[tuple]:
             order_time = period - lead_time + delay
             # 에피소드 시작 전(<0)이거나 오늘 발주(==period)면 0 으로 남김
             if 0 <= order_time < period:
-                arrivals[delay] = env.R[order_time, reorder_idx]
+                arrivals[delay] = env.R[order_time, reorder_idx]  # R=그때 발주량. 그게 delay기간 후 도착
         # 출력용: "0기간 후 12.00, 1기간 후 8.00"
         schedule = ", ".join(
             f"{delay}기간 후 {arrivals[delay]:.2f}" for delay in range(lead_time)
@@ -220,7 +230,7 @@ def last_demand_and_backlog(env, period: int) -> tuple[float, float]:
     """
     if period > 0:
         # 예: period=3 이면 어제 = 기간 2. D[2, 0], U[2, 0]
-        return float(env.D[period - 1, 0]), float(env.U[period - 1, 0])
+        return float(env.D[period - 1, 0]), float(env.U[period - 1, 0])  # D=어제 수요, U=어제 미충족
     return 0.0, 0.0  # reset 직후는 어제 수요가 없음
 
 
@@ -234,7 +244,7 @@ def observation_sentiment(env, period: int) -> float:
     """
     if period == 0:
         return 1.0  # reset 직후. GW 에 어제 칸이 없음
-    return float(env.GW[period - 1])  # 예: period=3 이면 GW[2]
+    return float(env.GW[period - 1])  # GW=어제 수요에 곱한 sentiment. 예: period=3 이면 GW[2]
 
 
 def pipeline_rows_after_step(env, period: int) -> list[str]:
@@ -258,10 +268,10 @@ def pipeline_rows_after_step(env, period: int) -> list[str]:
     # lead_times 키는 발주 링크. (2,1) L=4, (3,2) L=4, (4,3) L=0
     for (src, dst), lead_time in env.network.lead_times.items():
         reorder_idx = env.network.reorder_map[(src, dst)]  # (2,1)=0. R, Y 의 열
-        in_transit = float(env.Y[period + 1, reorder_idx])  # 위 식의 Y[t+1]
+        in_transit = float(env.Y[period + 1, reorder_idx])  # Y=이동 중. step 끝난 뒤 합
         arrives_at = period + lead_time  # 오늘 R[t] 도착일. period=0, L=4 → 기간 4
         rows.append(
-            f"  {src}->{dst}: 이번 발주 {env.R[period, reorder_idx]:.2f}, "
+            f"  {src}->{dst}: 이번 발주 {env.R[period, reorder_idx]:.2f}, "  # R=오늘 실제 발주
             f"다음 이동 중 Y={in_transit:.2f}, 이번 발주 도착 예정 기간={arrives_at}"
         )
     return rows  # 출력 문자열 3줄. 학습에는 안 씀
@@ -288,7 +298,7 @@ def collect_reward_terms(env, period: int) -> dict:
             succ_id = env.network.idx_to_node[succ_idx]  # 예: 소매면 시장 0
             # edges[(출발, 도착)]["p"] = 이 링크 판매가. 소매→시장이면 2.0
             price = float(env.network.graph.edges[(node_id, succ_id)]["p"])
-            shipped = float(env.S[period, net_idx])  # 오늘 그 링크 출하/판매
+            shipped = float(env.S[period, net_idx])  # S=출하/판매. 오늘 그 링크에서 보낸 양
             value = price * shipped  # 예: 소매 24 × 2.0 = 48
             sales_revenue += value
             sr_lines.append(
@@ -301,7 +311,7 @@ def collect_reward_terms(env, period: int) -> dict:
             pred_id = env.network.idx_to_node[pred_idx]  # 예: 소매면 유통 2
             # 윗링크 구매가. 소매가 유통에서 사면 (2,1)["p"]=1.5
             price = float(env.network.graph.edges[(pred_id, node_id)]["p"])
-            ordered = float(env.R[period, reorder_idx])  # 오늘 실제 발주. 요청이 아님
+            ordered = float(env.R[period, reorder_idx])  # R=오늘 실제 발주. 요청이 아님
             value = price * ordered  # 예: 소매가 20 시키면 1.5 × 20 = 30
             purchase_cost += value
             pc_lines.append(
@@ -313,7 +323,7 @@ def collect_reward_terms(env, period: int) -> dict:
         if node_id not in env.network.rawmat:
             node_idx = env.network.node_map[node_id]
             hold_rate = float(env.network.graph.nodes[node_id]["h"])  # 소매 0.03, 유통 0.02, 공장 0.01
-            on_hand = float(env.X[period + 1, node_idx])  # step 끝난 뒤 창고
+            on_hand = float(env.X[period + 1, node_idx])  # X=창고 재고. step 끝난 뒤
             on_hand_cost = hold_rate * on_hand  # 예: 소매 76 × 0.03 = 2.28
             holding_cost += on_hand_cost
             hc_lines.append(
@@ -325,7 +335,7 @@ def collect_reward_terms(env, period: int) -> dict:
                 pred_id = env.network.idx_to_node[pred_idx]
                 # 이 링크로 오는 중 유지비 g. (2,1)["g"]=0.01, (3,2)=0.005, (4,3)=0
                 pipeline_rate = float(env.network.graph.edges[(pred_id, node_id)]["g"])
-                in_transit = float(env.Y[period + 1, reorder_idx])  # 오늘 끝난 뒤 이동 중 합
+                in_transit = float(env.Y[period + 1, reorder_idx])  # Y=이동 중 재고. 오늘 끝난 뒤 합
                 pipeline_cost = pipeline_rate * in_transit
                 holding_cost += pipeline_cost
                 hc_lines.append(
@@ -335,7 +345,7 @@ def collect_reward_terms(env, period: int) -> dict:
 
         # OC 운영비: 공장만. 원자재 1단위 가공비 o 를 출하에 곱함
         if node_id in env.network.factory:
-            shipped = sum(float(env.S[period, net_idx]) for _, net_idx in env.network.succ_network_indices[node_id])
+            shipped = sum(float(env.S[period, net_idx]) for _, net_idx in env.network.succ_network_indices[node_id])  # S=공장 출하
             op_rate = float(env.network.graph.nodes[node_id]["o"])  # 0.01
             yield_rate = float(env.network.graph.nodes[node_id]["v"])  # 1.0
             # OC = (o/v)×출하. v=1 이라 0.01 × 공장출하. 예: 20 보내면 0.20
@@ -352,7 +362,7 @@ def collect_reward_terms(env, period: int) -> dict:
                     retail_idx = env.network.retail_map[(node_id, succ_id)]  # Serial 은 0
                     # 판매 링크 품절벌금. (1,0)["b"]=0.1. 발주 링크에는 b 가 없음
                     penalty_rate = float(env.network.graph.edges[(node_id, succ_id)]["b"])
-                    unmet = float(env.U[period, retail_idx])  # 오늘 못 준 양. 수요 − 판매
+                    unmet = float(env.U[period, retail_idx])  # U=미충족. 오늘 못 준 양 = 수요 − 판매
                     value = penalty_rate * unmet  # 예: 못 준 14 × 0.1 = 1.4
                     backlog_penalty += value
                     up_lines.append(
@@ -364,7 +374,7 @@ def collect_reward_terms(env, period: int) -> dict:
             pred_id = env.network.idx_to_node[pred_idx]
             # 고정발주비 K. Serial yaml 에 키 자체가 없어서 get(..., 0.0) → 0
             setup_cost = float(env.network.graph.edges[(pred_id, node_id)].get("K", 0.0))
-            ordered = float(env.R[period, reorder_idx])
+            ordered = float(env.R[period, reorder_idx])  # R=오늘 발주. 있으면 FK 대상 (여기 K=0)
             value = setup_cost if setup_cost > 0.0 and ordered > 0.0 else 0.0
             fixed_order_cost += value
             fk_lines.append(
@@ -448,9 +458,9 @@ def print_period(env, period: int, action: np.ndarray, reward: float, info: dict
     receipts = receipts_by_node(env, period)
     outflows = outflow_by_node(env, period)
     terms = collect_reward_terms(env, period)
-    demand = float(env.D[period, retail_idx])
-    sales = float(env.S[period, retail_net_idx])
-    backlog = float(env.U[period, retail_idx])
+    demand = float(env.D[period, retail_idx])  # D=오늘 소매 수요
+    sales = float(env.S[period, retail_net_idx])  # S=오늘 소매→시장 판매
+    backlog = float(env.U[period, retail_idx])  # U=오늘 미충족
 
     print()
     print("=" * 60)
@@ -484,7 +494,7 @@ def print_period(env, period: int, action: np.ndarray, reward: float, info: dict
     section("ACTION")
     print("발주 요청량과 실제 반영된 R")
     for i, (src, dst) in enumerate(env.network.reorder_links):
-        filled = float(env.R[period, i])
+        filled = float(env.R[period, i])  # R=실제 발주. action 요청을 재고·용량으로 자른 값
         print(
             f"  action[{i}] {src}->{dst}: "
             f"요청 {action[i]:.2f}  →  실제 R={filled:.2f}"
@@ -500,7 +510,7 @@ def print_period(env, period: int, action: np.ndarray, reward: float, info: dict
     print(
         "goodwill 갱신: "
         f"관측 {observation_sentiment(env, period):.3f} → "
-        f"이번 수요에 사용한 값 {float(env.GW[period]):.3f}"
+        f"이번 수요에 사용한 값 {float(env.GW[period]):.3f}"  # GW=오늘 수요에 곱한 sentiment
     )
     print("다음 이동 중 재고 Y[t+1]")
     for row in pipeline_rows_after_step(env, period):

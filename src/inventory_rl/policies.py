@@ -104,14 +104,14 @@ class BaseStockPolicy:
             lead_demand = mean_demand * (info["max_L"] + 1)
             # Poisson 누적분포가 cr 이 되는 지점 = 목표 재고 S.
             target = poisson.ppf(info["cr"], lead_demand) if lead_demand > 0 else 0.0
-            on_hand = core.X[period, node_idx]  # 지금 창고에 있는 양
-            in_transit = sum(core.Y[period, i] for i, _ in info["incoming"])  # 오는 중
+            on_hand = core.X[period, node_idx]  # X=창고 재고. 지금 들고 있는 양
+            in_transit = sum(core.Y[period, i] for i, _ in info["incoming"])  # Y=이동 중. 아직 안 도착한 합
             backlog = 0.0
             if node in core.network.retail and period > 0:
                 # 소매만 고객 미충족 U 가 있다. 이미 빚진 양은 목표에서 빼야 한다.
                 for k in core.graph.successors(node):
                     if (node, k) in core.network.retail_map:
-                        backlog = core.U[period - 1, core.network.retail_map[(node, k)]]
+                        backlog = core.U[period - 1, core.network.retail_map[(node, k)]]  # U=어제 미충족. 이미 빚진 양
             inventory_position = on_hand + in_transit - backlog  # 예: 80 + 40 - 0 = 120
             # 이미 S 이상이면 0. 모자라면 그 차이만 발주 (마이너스 발주는 없다).
             # 예: 목표 130, 위치 120 → 10 발주
