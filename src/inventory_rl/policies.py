@@ -129,8 +129,11 @@ class BaseStockPolicy:
                     # 아래로 팔 때 가격. 유통이면 (2,1)["p"]=1.5
                     core.graph.edges.get((node, k), {}).get("p", 0) for k in core.graph.successors(node)
                 ]
+                # 이 노드가 윗단계에서 사 올 때 내는 가격 p 들.
+                # reorder_links 의 edge=(보내는 곳, 받는 곳). edge[1]==node 면 “나한테 오는 발주 링크”.
+                # 유통 node=2: 조건에 맞는 링크는 (3,2)뿐 → p=1.0 → buy_prices=[1.0]
+                # 공장 node=3: (4,3) → p=0.5 → buy_prices=[0.5]
                 buy_prices = [
-                    # 위로 살 때 가격. 유통이면 (3,2)["p"]=1.0
                     core.graph.edges.get(edge, {}).get("p", 0)
                     for edge in network.reorder_links
                     if edge[1] == node
