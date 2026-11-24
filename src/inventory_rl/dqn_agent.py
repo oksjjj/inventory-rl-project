@@ -74,14 +74,18 @@ class ReplayBuffer:
     """
 
     def __init__(self, capacity: int, obs_dim: int) -> None:
-        self.capacity = capacity  # 꽉 차면 맨 앞부터 덮어쓴다
-        self.obs = np.zeros((capacity, obs_dim), dtype=np.float32)
-        self.next_obs = np.zeros((capacity, obs_dim), dtype=np.float32)
-        self.actions = np.zeros(capacity, dtype=np.int64)  # 0..124 인덱스
-        self.rewards = np.zeros(capacity, dtype=np.float32)
-        self.dones = np.zeros(capacity, dtype=np.float32)
-        self._i = 0
-        self.size = 0
+        # 최대 몇 줄을 담을지. 기본 50000. 넘치면 add() 가 칸 0부터 덮어쓴다.
+        self.capacity = capacity
+        # 아래 다섯 배열은 같은 행 번호가 한 전이 (s, a, r, s', done).
+        # 예: 학습 기본 obs_dim=15, capacity=50000
+        #     obs[3] = 기간 t 관측, next_obs[3] = 그 다음 관측, actions[3] = 그때 고른 번호
+        self.obs = np.zeros((capacity, obs_dim), dtype=np.float32)  # s. 행=전이, 열=관측 15칸
+        self.next_obs = np.zeros((capacity, obs_dim), dtype=np.float32)  # s'
+        self.actions = np.zeros(capacity, dtype=np.int64)  # a. 발주 벡터가 아니라 0~124 번호
+        self.rewards = np.zeros(capacity, dtype=np.float32)  # r. 그 기간 보상
+        self.dones = np.zeros(capacity, dtype=np.float32)  # 에피소드 끝이면 1. 아니면 0
+        self._i = 0  # 다음에 쓸 칸. 0,1,2,... 계속 증가. 실제 칸은 _i % capacity
+        self.size = 0  # 지금 들어 있는 줄 수. capacity 를 넘지 않음. sample 범위가 0..size
 
     def add(
         self,
