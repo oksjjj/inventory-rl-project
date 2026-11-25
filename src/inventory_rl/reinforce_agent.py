@@ -15,8 +15,7 @@
 코드에서 손실에 마이너스를 붙이는 이유는 PyTorch 가 경사하강만 해서다.
 −log π × A 를 줄이면 log π × A 를 올리는 것과 같다.
 
-네트워크 이름은 ReinforceNet. 8강 TD actor-critic 은 actor_critic_agent.py 의
-ActorCriticNet / ActorCriticAgent 이다. 매 기간 δ_t 가 아니라 에피소드 G_t 를 쓴다.
+네트워크 이름은 ReinforceNet. 매 기간 δ_t 가 아니라 에피소드 G_t 를 쓴다.
 
 한 줄 요약:
     1) 관측으로 발주량 평균 μ와 가치 V를 계산하고, 학습 파라미터로 표준편차 σ를 계산한다.
