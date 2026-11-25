@@ -281,9 +281,20 @@ class DQNAgent:
         rew_t = torch.as_tensor(rewards, dtype=torch.float32, device=self.device) / self.reward_scale
         done_t = torch.as_tensor(dones, dtype=torch.float32, device=self.device)  # 0 또는 1
 
-        # q(obs_t) 는 (64, 125). gather 로 그때 고른 칸만.
-        # unsqueeze(1): (64,) → (64,1). squeeze(1) 로 다시 (64,).
-        # 예: actions=6 이면 각 행의 6번 칸 Q.
+        # 손실에 필요한 건 “그때 고른 a 의 Q” 하나다. 125칸 전부가 아님.
+        # self.q(obs_t) 모양 (64, 125):
+        #   행 = 배치의 관측, 열 = 이산 발주 번호 0~124
+        #   예: 2행·3칸짜리로 줄이면
+        #        Q = [[1.1, 0.2, 3.0],     ← 관측0, 번호0/1/2 의 Q
+        #             [0.5, 2.2, 0.1]]     ← 관측1
+        #        그때 고른 번호 act_t = [2, 0]
+        #        필요한 값 = [3.0, 0.5]  (0행의 2열, 1행의 0열)
+        # gather(1, 인덱스): 각 행에서 “인덱스에 적힌 열”만 뽑는다.
+        #   dim=1 이 “열 방향”. 인덱스는 Q 와 같은 2차원이어야 해서
+        #   unsqueeze(1): [2, 0] → [[2], [0]]
+        #   gather 결과: [[3.0], [0.5]]
+        #   squeeze(1): [3.0, 0.5]  ← 아래 target (64,) 과 맞춰 MSE
+        # 실제: act_t 에 6 이 있으면 그 행의 6번 칸 = 발주 (20,20,0) 의 Q.
         q_sa = self.q(obs_t).gather(1, act_t.unsqueeze(1)).squeeze(1)
         with torch.no_grad():  # y 는 상수처럼. 타깃망 경사는 안 흐름
             # target_q(next_t): (64, 125) → 행마다 최댓값. “s'에서 제일 좋은 발주”
