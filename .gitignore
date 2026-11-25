@@ -4,4 +4,8 @@ __pycache__/
 *.egg-info/
 .pytest_cache/
 .DS_Store
-outputs/
+# 학습 가중치·로그·곡선은 제외. 정책 비교 CSV만 추적한다.
+outputs/**
+!outputs/**/
+!outputs/policy_comparison.csv
+!outputs/stationary/policy_comparison.csv
