@@ -43,7 +43,7 @@ def main() -> None:
     history_return = []
 
     with log_path.open("w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=["episode", "return", "loss", "policy_loss"])
+        writer = csv.DictWriter(file, fieldnames=["episode", "return", "loss"])
         writer.writeheader()
 
         for episode in range(1, args.episodes + 1):
@@ -63,13 +63,13 @@ def main() -> None:
 
             # 30기간이 다 끝난 뒤에야 G_t 를 만들 수 있다. 그래서 지금 업데이트.
             stats = agent.update_episode(log_probs, rewards)
-            episode_return = float(sum(rewards))
+            episode_return = stats["return"]
             history_return.append(episode_return)
             writer.writerow({"episode": episode, **stats})
             if episode % 50 == 0 or episode == 1:
                 print(
                     f"episode {episode:4d}  return={episode_return:8.2f}  "
-                    f"loss={stats['loss']:.3f}  policy={stats['policy_loss']:.3f}"
+                    f"loss={stats['loss']:.3f}"
                 )
 
     finish_training(agent, env, history_return, save_path, log_path, fig_path,

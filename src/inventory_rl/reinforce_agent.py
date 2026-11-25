@@ -160,7 +160,6 @@ class ReinforceAgent:
         # 로그용 수치는 Tensor에서 꺼내며, return은 원본 보상의 할인 없는 합이다.
         return {
             "loss": float(policy_loss.item()),
-            "policy_loss": float(policy_loss.item()),
             "return": float(sum(rewards)),
         }
 

@@ -69,6 +69,9 @@ def main():
                         obs = next_obs
                     if agent_cls is ReinforceAgent:
                         stats = agent.update_episode(log_probs, rewards)
+                        # REINFORCE는 정책 손실과 원본 누적 보상만 반환한다.
+                        assert set(stats) == {"loss", "return"}
+                        assert stats["return"] == float(sum(rewards))
                     assert len(rewards) == 30
                     assert all(np.isfinite(v) for v in stats.values())
                     assert any(not torch.equal(initial[k], v) for k, v in model.state_dict().items())

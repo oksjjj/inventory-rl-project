@@ -256,7 +256,7 @@ gym.make("GymInvMgmt/Serial-v0", demand_config=stationary)
 같은 이름 파일:
 
 - `reinforce_vanilla.pt` — REINFORCE 가중치
-- `reinforce_vanilla_train_log.csv` — REINFORCE 에피소드별 보상·손실
+- `reinforce_vanilla_train_log.csv` — REINFORCE 에피소드별 보상·손실 (`episode`, `return`, `loss`)
 - `reinforce_vanilla_train_return.png` — REINFORCE 학습 곡선
 - `actor_critic.pt` — actor-critic 가중치
 - `actor_critic_train_log.csv` — actor-critic 에피소드별 보상·손실
