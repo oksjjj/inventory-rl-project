@@ -126,6 +126,13 @@ class ReinforceAgent:
         # 예: 보상 [10,20,30], γ=0.99이면
         # G_2=0.6, G_1=0.4+0.99×0.6=0.994,
         # G_0=0.2+0.99×0.994=1.18406.
+        #
+        # reversed 로 끝→앞 계산하고, insert(0, …) 로 맨 앞에 넣는다.
+        # 그래서 끝난 뒤 returns 는 다시 기간 0,1,… 순. log_probs 와 t 가 맞는다.
+        # 예: 보상 [r0,r1,r2]
+        #   r2 → [G2]
+        #   r1 → [G1, G2]
+        #   r0 → [G0, G1, G2]
         returns = []
         discounted = 0.0
         for reward in reversed(rewards):
