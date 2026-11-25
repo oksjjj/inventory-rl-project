@@ -20,17 +20,21 @@ import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
+import torch
 
 # scripts/ 에서 실행해도 src/inventory_rl 을 import 하게 경로를 넣는다.
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
 from inventory_rl.env import clip_order, make_serial_env, output_dir_for_demand
+from inventory_rl.discrete_agent import DiscreteReinforceAgent
 from inventory_rl.reinforce_agent import ReinforceAgent
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Serial-v0 전체 발주 REINFORCE 학습")
+    parser.add_argument("--action-space", choices=["continuous", "discrete"], default="continuous")
     parser.add_argument("--demand", choices=["stationary", "trend_shock"], default="trend_shock")
     parser.add_argument("--episodes", type=int, default=3000)  # 30기간짜리 게임을 몇 판 돌릴지
     parser.add_argument("--seed", type=int, default=0)
@@ -43,18 +47,24 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    # 환경 난수 외에도 모델 초기화와 행동 샘플링 난수를 고정한다.
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
     # 정상 수요와 급변 수요 가중치가 서로 덮이지 않게 폴더를 나눈다.
+    # 연속형과 이산형의 모델 및 로그 파일을 분리한다.
+    stem = "reinforce_discrete" if args.action_space == "discrete" else "reinforce_vanilla"
+    agent_cls = DiscreteReinforceAgent if args.action_space == "discrete" else ReinforceAgent
     out_dir = ROOT / (args.out_dir or output_dir_for_demand(args.demand))
-    save_path = ROOT / args.save_path if args.save_path else out_dir / "reinforce_vanilla.pt"
-    fig_path = ROOT / args.fig_path if args.fig_path else out_dir / "reinforce_vanilla_train_return.png"
+    save_path = ROOT / args.save_path if args.save_path else out_dir / f"{stem}.pt"
+    fig_path = ROOT / args.fig_path if args.fig_path else out_dir / f"{stem}_train_return.png"
     env = make_serial_env(demand=args.demand)
     env.reset(seed=args.seed)
-    agent = ReinforceAgent(
+    agent = agent_cls(
         obs_dim=env.observation_space.shape[0],  # Serial-v0 = 15
         act_dim=env.action_space.shape[0],  # 발주 링크 3개
     )
 
-    log_path = ROOT / args.log_path if args.log_path else out_dir / "reinforce_vanilla_train_log.csv"
+    log_path = ROOT / args.log_path if args.log_path else out_dir / f"{stem}_train_log.csv"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     history_return = []
 
@@ -103,7 +113,7 @@ def main() -> None:
     plt.plot(moving, color="steelblue", label=f"{window}-episode mean")
     plt.xlabel("episode")
     plt.ylabel("return")
-    plt.title(f"Vanilla REINFORCE (full order), demand={args.demand}")
+    plt.title(f"Vanilla REINFORCE ({args.action_space}), demand={args.demand}")
     plt.legend()
     plt.tight_layout()
     plt.savefig(fig_path, dpi=120)

@@ -15,6 +15,8 @@ import sys
 from pathlib import Path
 
 import matplotlib.pyplot as plt
+import numpy as np
+import torch
 
 # scripts/ 에서 실행해도 src/inventory_rl 을 import 하게 경로를 넣는다.
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,6 +40,9 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
+    # 환경 난수 외에도 모델 초기화와 행동 샘플링 난수를 고정한다.
+    np.random.seed(args.seed)
+    torch.manual_seed(args.seed)
     out_dir = ROOT / (args.out_dir or output_dir_for_demand(args.demand))
     save_path = ROOT / args.save_path if args.save_path else out_dir / "dqn.pt"
     fig_path = ROOT / args.fig_path if args.fig_path else out_dir / "dqn_train_return.png"

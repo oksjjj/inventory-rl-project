@@ -9,3 +9,7 @@ outputs/**
 !outputs/**/
 !outputs/policy_comparison.csv
 !outputs/stationary/policy_comparison.csv
+!outputs/policy_comparison_vanilla.csv
+!outputs/stationary/policy_comparison_vanilla.csv
+!outputs/policy_comparison_7.csv
+!outputs/stationary/policy_comparison_7.csv

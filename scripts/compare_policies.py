@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from inventory_rl.actor_critic_agent import ActorCriticAgent
 from inventory_rl.dqn_agent import DQNAgent
+from inventory_rl.discrete_agent import DiscreteReinforceAgent, DiscreteActorCriticAgent
 from inventory_rl.env import demand_label, make_serial_env, output_dir_for_demand
 from inventory_rl.evaluate import evaluate_policy
 from inventory_rl.policies import BaseStockPolicy, ConstantOrderPolicy
@@ -31,8 +32,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--checkpoint", type=str, default="")
     parser.add_argument("--dqn-checkpoint", type=str, default="")
     parser.add_argument("--ac-checkpoint", type=str, default="")
+    parser.add_argument("--discrete-rf-checkpoint", type=str, default="")
+    parser.add_argument("--discrete-ac-checkpoint", type=str, default="")
+    parser.add_argument("--require-all", action="store_true", help="모델이 누락되면 비교 중단")
     parser.add_argument("--eval-episodes", type=int, default=20)  # 학습이 아니라 평균 낼 판 수
-    parser.add_argument("--eval-seed", type=int, default=1000)  # 학습 시드(0부터)와 겹치지 않게
+    parser.add_argument("--eval-seed", type=int, default=10000)  # 기본 학습 환경 시드 1~3000과 겹치지 않게
     parser.add_argument("--constant-order", type=float, default=20.0)  # 고정 발주 정책의 수량
     parser.add_argument("--out-csv", type=str, default="")
     return parser.parse_args()
@@ -69,7 +73,7 @@ def print_table(rows: list[dict]) -> None:
 def main() -> None:
     args = parse_args()
     out_dir = ROOT / (args.out_dir or output_dir_for_demand(args.demand))
-    # 학습 때와 다른 시드(기본 1000부터)로 평가한다. 예: 1000..1019
+    # 기본 학습 환경 시드와 겹치지 않는 평가 시드 10000..10019.
     seeds = list(range(args.eval_seed, args.eval_seed + args.eval_episodes))
     env = make_serial_env(demand=args.demand)
     env.reset(seed=0)
@@ -91,7 +95,7 @@ def main() -> None:
         # 평가에서는 평균 발주만 쓴다. 학습 때처럼 가우시안에서 뽑지 않는다.
         policies.append(
             (
-                "학습 정책(Vanilla REINFORCE)",
+                "REINFORCE (Continuous)",
                 lambda obs, current_env, learned=agent: learned.get_action(obs, current_env, deterministic=True),
             )
         )
@@ -105,7 +109,7 @@ def main() -> None:
         ac_agent.load(ac_ckpt)
         policies.append(
             (
-                "학습 정책(Actor-Critic)",
+                "Actor-Critic (Continuous)",
                 lambda obs, current_env, learned=ac_agent: learned.get_action(
                     obs, current_env, deterministic=True
                 ),
@@ -121,7 +125,7 @@ def main() -> None:
         dqn.load(dqn_ckpt)
         policies.append(
             (
-                "학습 정책(DQN)",
+                "DQN (Discrete)",
                 lambda obs, current_env, learned=dqn: learned.get_action(
                     obs, current_env, deterministic=True
                 ),
@@ -131,7 +135,30 @@ def main() -> None:
         print(f"체크포인트가 없어 DQN은 비교에서 빠집니다: {dqn_ckpt}")
         print(f"먼저 python scripts/train_dqn.py --demand {args.demand} 를 실행하세요.")
 
+    # Categorical 정책은 평가 시 최대 확률의 행동을 선택한다.
+    discrete_specs = [
+        ("REINFORCE (Discrete)", DiscreteReinforceAgent,
+         ROOT / args.discrete_rf_checkpoint if args.discrete_rf_checkpoint else out_dir / "reinforce_discrete.pt",
+         "train_reinforce.py"),
+        ("Actor-Critic (Discrete)", DiscreteActorCriticAgent,
+         ROOT / args.discrete_ac_checkpoint if args.discrete_ac_checkpoint else out_dir / "actor_critic_discrete.pt",
+         "train_actor_critic.py"),
+    ]
+    for name, agent_cls, ckpt, script in discrete_specs:
+        if ckpt.exists():
+            discrete_agent = agent_cls(obs_dim=obs_dim, act_dim=act_dim)
+            discrete_agent.load(ckpt)
+            policies.append(
+                (name, lambda obs, current_env, learned=discrete_agent:
+                 learned.get_action(obs, current_env, deterministic=True))
+            )
+        else:
+            print(f"체크포인트가 없어 {name}은 비교에서 빠집니다: {ckpt}")
+            print(f"먼저 python scripts/{script} --action-space discrete --demand {args.demand} 를 실행하세요.")
+
     env.close()
+    if args.require_all and len(policies) != 7:
+        raise SystemExit(f"7개 정책이 필요하지만 {len(policies)}개만 준비되었습니다. 누락 모델을 먼저 학습하세요.")
 
     rows = []
     for name, action_fn in policies:
@@ -145,7 +172,7 @@ def main() -> None:
     print(f"평가 에피소드 {args.eval_episodes}개, 시작 시드 {args.eval_seed}")
     print_table(rows)
 
-    out_csv = ROOT / args.out_csv if args.out_csv else out_dir / "policy_comparison_vanilla.csv"
+    out_csv = ROOT / args.out_csv if args.out_csv else out_dir / "policy_comparison_7.csv"
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
         "name",
