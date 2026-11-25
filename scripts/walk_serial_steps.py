@@ -49,21 +49,15 @@ Serial-v0:
 from __future__ import annotations
 
 import argparse
+import sys
+from pathlib import Path
 
-import gymnasium as gym
 import numpy as np
 
-import gym_invmgmt  # noqa: F401  # 원본 환경 등록
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "src"))
 
-# gym.make에 넘기면 원본 Serial-v0 기본 수요(goodwill 꺼짐)를 통째로 바꾼다.
-# type: 시간에 따라 평균이 안 바뀜. 학습 기본값 trend+shock 와 다름.
-# base_mu: Poisson 수요의 기본 평균.
-# use_goodwill: 품절이면 다음 수요 평균에 sentiment 를 곱함 (과제 요구).
-SERIAL_DEMAND_CONFIG = {
-    "type": "stationary",
-    "base_mu": 20,
-    "use_goodwill": True,
-}
+from inventory_rl.env import make_serial_env
 
 
 def node_role(env, node_id: int) -> str:
@@ -571,7 +565,8 @@ def parse_args() -> argparse.Namespace:
 
 def main() -> None:
     args = parse_args()
-    env = gym.make("GymInvMgmt/Serial-v0", demand_config=SERIAL_DEMAND_CONFIG)
+    # 환경 설명은 평균 20의 정상 수요를 사용한다.
+    env = make_serial_env(demand="stationary")
     env.reset(seed=args.seed)
     core = env.unwrapped  # Wrapper 를 벗겨 X, Y, R 행렬에 바로 접근
 

@@ -95,7 +95,7 @@ src/inventory_rl/
 └── __init__.py            ReinforceAgent, ActorCriticAgent, DQNAgent
 
 scripts/
-├── walk_serial_steps.py   환경 설명. inventory_rl 을 거치지 않음
+├── walk_serial_steps.py   공통 환경 생성 함수로 환경 설명
 ├── train_reinforce.py     REINFORCE 학습 진입점
 ├── train_actor_critic.py  TD actor-critic 학습 진입점
 ├── train_dqn.py           DQN 학습 진입점
@@ -166,7 +166,7 @@ flowchart TB
 - **actor-critic 학습**은 `train_actor_critic.py` → `ActorCriticAgent` + `make_serial_env`
 - **DQN 학습**은 `train_dqn.py` → `DQNAgent` + `make_serial_env`
 - **비교**는 `compare_policies.py` → 고정 발주·재고 수준·REINFORCE·actor-critic·DQN + `evaluate_policy`
-- **설명**은 `walk_serial_steps.py` / 노트북이 원본 `gym.make`를 직접 호출한다. `src/inventory_rl` 을 거치지 않는다.
+- **설명**은 `walk_serial_steps.py` / 노트북이 `make_serial_env(demand="stationary")`를 호출한다. 학습·평가와 같은 `DEMAND_PRESETS`를 사용한다.
 
 `agent.py` 는 다른 스크립트가 쓰지 않는다. `from inventory_rl.agent import ...` 를 쓰고 싶을 때 있는 별칭이다.
 
@@ -238,7 +238,7 @@ make_serial_env()
 ### 환경 설명 `walk_serial_steps.py`
 
 ```text
-gym.make("GymInvMgmt/Serial-v0", demand_config=stationary)
+make_serial_env(demand="stationary")
     → reset / step 을 한 기간씩 출력
 ```
 

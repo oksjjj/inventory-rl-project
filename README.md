@@ -177,3 +177,5 @@ DQN이 두 시나리오에서 가장 높은 누적 이익을 달성했다. 급�
 python -m compileall src scripts
 python scripts/smoke_test_agents.py
 ```
+
+수요 설정은 `src/inventory_rl/env.py`의 `DEMAND_PRESETS`에서 관리합니다. 학습·평가 및 환경 설명 스크립트와 노트북은 `make_serial_env()`를 통해 동일한 설정을 사용하며, 환경 설명은 `demand="stationary"`로 실행합니다.

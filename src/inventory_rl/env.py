@@ -30,9 +30,6 @@ DEMAND_PRESETS = {
     },
 }
 
-# 기본값은 급변 수요. 예전 코드가 SERIAL_DEMAND_CONFIG 를 직접 보던 호환용.
-SERIAL_DEMAND_CONFIG = DEMAND_PRESETS["trend_shock"]
-
 # 원본 action_space 상한은 용량×기간이라 학습에 쓰지 않는다. 발주는 0~80으로 자른다.
 MAX_ORDER = 80.0
 
