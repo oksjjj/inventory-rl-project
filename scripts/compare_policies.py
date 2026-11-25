@@ -84,14 +84,14 @@ def main() -> None:
         ("재고 수준", lambda obs, current_env, policy=base_stock: policy.get_action(obs, current_env)),
     ]
 
-    checkpoint = ROOT / args.checkpoint if args.checkpoint else out_dir / "reinforce.pt"
+    checkpoint = ROOT / args.checkpoint if args.checkpoint else out_dir / "reinforce_vanilla.pt"
     if checkpoint.exists():
         agent = ReinforceAgent(obs_dim=obs_dim, act_dim=act_dim)
         agent.load(checkpoint)
         # 평가에서는 평균 발주만 쓴다. 학습 때처럼 가우시안에서 뽑지 않는다.
         policies.append(
             (
-                "학습 정책(REINFORCE)",
+                "학습 정책(Vanilla REINFORCE)",
                 lambda obs, current_env, learned=agent: learned.get_action(obs, current_env, deterministic=True),
             )
         )
@@ -145,7 +145,7 @@ def main() -> None:
     print(f"평가 에피소드 {args.eval_episodes}개, 시작 시드 {args.eval_seed}")
     print_table(rows)
 
-    out_csv = ROOT / args.out_csv if args.out_csv else out_dir / "policy_comparison.csv"
+    out_csv = ROOT / args.out_csv if args.out_csv else out_dir / "policy_comparison_vanilla.csv"
     out_csv.parent.mkdir(parents=True, exist_ok=True)
     fieldnames = [
         "name",

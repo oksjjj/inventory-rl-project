@@ -177,10 +177,10 @@ make_serial_env()
     → ReinforceAgent
         → 에피소드마다
               act_and_log(관측) → env.step(발주) 를 30기간
-              update_episode(...)          # 에피소드가 끝난 뒤에 한 번, G_t − V(s)
-    → outputs/.../reinforce.pt
-    → outputs/.../reinforce_train_log.csv
-    → outputs/.../reinforce_train_return.png
+              update_episode(...)          # 에피소드가 끝난 뒤에 한 번, G_t (기준선 없음)
+    → outputs/.../reinforce_vanilla.pt
+    → outputs/.../reinforce_vanilla_train_log.csv
+    → outputs/.../reinforce_vanilla_train_return.png
 ```
 
 `reinforce_agent.py` 가 `obs.scale_obs` 로 관측을 나눈 뒤 신경망에 넣는다.
@@ -198,7 +198,7 @@ make_serial_env()
     → outputs/.../actor_critic_train_return.png
 ```
 
-정책 네트워크 모양은 REINFORCE와 같다. 다른 점은 학습 시점이다. REINFORCE는 30기간이 끝난 뒤 $G_t$, actor-critic은 매 기간 TD 오차다.
+가우시안 정책의 평균·표준편차 구조는 같지만 Actor-Critic에만 가치 head가 있다. 학습 시점도 다르다. REINFORCE는 30기간이 끝난 뒤 $G_t$, actor-critic은 매 기간 TD 오차다.
 
 ### 학습 `train_dqn.py`
 
@@ -220,13 +220,13 @@ make_serial_env()
 ```text
 고정 발주              ConstantOrderPolicy.get_action
 재고 수준              BaseStockPolicy.get_action
-학습 정책(REINFORCE)    ReinforceAgent.load(reinforce.pt) → get_action
+학습 정책(REINFORCE)    ReinforceAgent.load(reinforce_vanilla.pt) → get_action
 학습 정책(Actor-Critic) ActorCriticAgent.load(actor_critic.pt) → get_action
 학습 정책(DQN)          DQNAgent.load(dqn.pt) → get_action
         ↘
      evaluate_policy  (같은 시드, 같은 수요)
         → compute_kpis
-        → outputs/.../policy_comparison.csv
+        → outputs/.../policy_comparison_vanilla.csv
 ```
 
 다섯 정책이 모두 `env.clip_order` 로 발주를 0~80에 맞춘다. DQN은 그 안에서 이산 칸만 고른다.
@@ -251,16 +251,17 @@ gym.make("GymInvMgmt/Serial-v0", demand_config=stationary)
 
 같은 이름 파일:
 
-- `reinforce.pt` — REINFORCE 가중치
-- `reinforce_train_log.csv` — REINFORCE 에피소드별 보상·손실
-- `reinforce_train_return.png` — REINFORCE 학습 곡선
+- `reinforce_vanilla.pt` — REINFORCE 가중치
+- `reinforce_vanilla_train_log.csv` — REINFORCE 에피소드별 보상·손실
+- `reinforce_vanilla_train_return.png` — REINFORCE 학습 곡선
 - `actor_critic.pt` — actor-critic 가중치
 - `actor_critic_train_log.csv` — actor-critic 에피소드별 보상·손실
 - `actor_critic_train_return.png` — actor-critic 학습 곡선
 - `dqn.pt` — DQN 가중치
 - `dqn_train_log.csv` — DQN 에피소드별 보상·손실·ε
 - `dqn_train_return.png` — DQN 학습 곡선
-- `policy_comparison.csv` — 다섯 정책 KPI
+- `policy_comparison_vanilla.csv` — 순수 REINFORCE 포함 다섯 정책 KPI
+- 기존 `reinforce.pt` 및 `policy_comparison.csv` — 가치 기준선 버전의 이전 결과 (재사용하지 않음)
 
 ## 7. 원본에서 열어볼 파일
 
@@ -283,7 +284,7 @@ gym.make("GymInvMgmt/Serial-v0", demand_config=stationary)
 3. `scripts/walk_serial_steps.py` 또는 노트북 — `reset`/`step` 한 기간
 4. `src/inventory_rl/policies.py` — 학습하지 않는 두 기준선
 5. `src/inventory_rl/dqn_agent.py` — 7강 value-based
-6. `src/inventory_rl/reinforce_agent.py` — 8강 REINFORCE + 기준선
+6. `src/inventory_rl/reinforce_agent.py` — 8강 순수 REINFORCE
 7. `src/inventory_rl/actor_critic_agent.py` — 8강 TD actor-critic
 8. `scripts/train_*.py` → `scripts/compare_policies.py` → `evaluate.py`
 
@@ -293,7 +294,7 @@ gym.make("GymInvMgmt/Serial-v0", demand_config=stationary)
 
 | 이름 | 실제 |
 |---|---|
-| `reinforce_agent.ReinforceNet` | REINFORCE 네트워크. V 는 $G_t$ 기준선 |
+| `reinforce_agent.ReinforceNet` | 순수 REINFORCE 정책망. V 없음 |
 | `reinforce_agent.ReinforceAgent` | 에피소드가 끝난 뒤 $G_t$ 로 갱신 |
 | `actor_critic_agent.ActorCriticNet` | TD actor-critic 네트워크. V 는 $r+\gamma V(s')$ |
 | `actor_critic_agent.ActorCriticAgent` | 8강 TD actor-critic. 매 기간 $\delta_t$ |
@@ -308,14 +309,14 @@ gym.make("GymInvMgmt/Serial-v0", demand_config=stationary)
 | 수업 | 코드 | 행동 | 업데이트 |
 |---|---|---|---|
 | 7강 DQN | `dqn_agent.py` `learn()` | 이산 125칸 | $y = r + \gamma \max_{a'} Q_{\theta^-}(s',a')$, MSE |
-| 8강 REINFORCE | `reinforce_agent.py` `update_episode()` | 연속 가우시안 | $\nabla \log\pi \times (G_t - V(s))$, 에피소드 끝 한 번 |
+| 8강 REINFORCE | `reinforce_agent.py` `update_episode()` | 연속 가우시안 | $\nabla \log\pi \times G_t$, 에피소드 끝 한 번 |
 | 8강 TD actor-critic | `actor_critic_agent.py` `learn_step()` | 연속 가우시안 | $\delta = r + \gamma V(s') - V(s)$, 매 기간 |
 
 슬라이드에 없고 코드에 있는 것:
 
 - 발주 이산화 `{0,20,40,60,80}` — DQN을 쓰기 위해 우리가 자른 것
 - 보상 / 50 — 손실 스케일
-- entropy 항 — REINFORCE·actor-critic 이 한 값에 고정되지 않게
+- entropy 항 — TD actor-critic에만 적용 (순수 REINFORCE에는 없음)
 - actor-critic 의 backbone 공유 — 슬라이드는 $\theta$ 와 $w$ 를 따로 둠
 - Q actor-critic, $Q-V$ advantage 버전은 없음
 

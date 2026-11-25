@@ -5,22 +5,24 @@
 학습 정책은 세 개다. 파일·호출 관계와 수업 식 대응은 [`docs/file_structure.md`](file_structure.md) 를 본다.
 
 - DQN: 7강, 이산 발주 `{0,20,40,60,80}`
-- REINFORCE + $V(s)$ 기준선: 8강, 연속 발주, 에피소드 수익 $G_t$
+- 순수 REINFORCE (가치 기준선 및 entropy 없음): 8강, 연속 발주, 에피소드 수익 $G_t$
 - TD actor-critic: 8강, 연속 발주, 매 기간 $\delta_t$
 
-아래 표의 “학습 정책 하나” 서술은 예전 초안이다. 현재 비교는 `scripts/compare_policies.py` 가 다섯 줄(고정·재고 수준·REINFORCE·actor-critic·DQN)을 출력한다.
+현재 비교는 `scripts/compare_policies.py` 가 다섯 줄(고정·재고 수준·REINFORCE·actor-critic·DQN)을 출력한다.
 
 ## 1. 무엇을 푸는가
 
 매 기간 세 발주 링크의 수량을 정한다. 목표는 에피소드 누적 이익을 키우는 것이다.
 
-비교 정책은 세 개다.
+비교 정책은 다섯 개다.
 
 | 정책 | 학습 | 하는 일 |
 |---|---|---|
 | 고정 발주 | 없음 | 매 기간 같은 수량 20 |
 | 재고 수준 (base-stock) | 없음 | 재고 위치가 목표 S보다 모자라면 그 차이만큼 발주 |
-| 학습 정책 | REINFORCE + 기준선 | 관측을 보고 발주량 전체를 학습 |
+| 순수 REINFORCE | 정책 경사 | 실제 할인 누적 보상으로 연속 발주 정책 학습 |
+| TD Actor-Critic | 정책 경사 + 가치 함수 | TD 오차 기반 연속 발주 정책 학습 |
+| DQN | 행동가치 함수 | 125개 이산 발주 조합 학습 |
 
 ## 2. 원본과 우리가 추가한 것
 
@@ -32,7 +34,7 @@
 | `src/inventory_rl/policies.py` | 고정 발주, 재고 수준 기준선 |
 | `src/inventory_rl/reinforce_agent.py` | 가우시안 정책과 REINFORCE 업데이트 |
 | `scripts/train_reinforce.py` | 학습 |
-| `scripts/compare_policies.py` | 세 정책을 같은 KPI로 비교 |
+| `scripts/compare_policies.py` | 다섯 정책을 같은 KPI로 비교 |
 | `scripts/walk_serial_steps.py` | 환경 설명용. 정상 수요를 그대로 둔다 |
 | `notebooks/inspect_env_interface.ipynb` | `reset`/`step` 인터페이스 확인 |
 
@@ -80,10 +82,11 @@ goodwill(sentiment)은 보상 항이 아니다. 직전 기간에 미충족이 �
 발주량은 연속이다. 세 링크를 이산 칸으로 자르면 조합이 바로 커진다. 수업의 함수 근사 + policy gradient로 가우시안 정책을 학습한다.
 
 ```text
-발주 = clip(sigmoid(신경망) × 80, 0, 80)
+평균 = sigmoid(신경망) × 80
+학습 발주 = clip(Normal(평균, 표준편차)에서 샘플링, 0, 80)
 ```
 
-에피소드가 끝나면 할인 보상 G_t 에서 가치 함수 기준선을 빼고, 그 값으로 로그확률을 올린다. 재고 수준 기준선은 시뮬레이터의 진짜 μ(t)를 보지 않고, 관측의 직전 수요만 쓴다.
+에피소드가 끝나면 실제 할인 누적 보상 G_t로 정책 손실 -mean(logπ × G_t)을 계산한다. 가치 함수, Advantage, entropy 보너스는 없다. 재고 수준 기준선은 시뮬레이터의 진짜 μ(t)를 보지 않고, 관측의 직전 수요만 쓴다.
 
 ## 6. 실행
 
@@ -99,10 +102,13 @@ python scripts/compare_policies.py --demand stationary
 
 비교 지표는 계획서와 같다. 누적 이익, 충족률, 미충족, 평균 재고, sentiment.
 
-- 급변 수요: `outputs/policy_comparison.csv`
-- 정상 수요: `outputs/stationary/policy_comparison.csv`
+- 급변 수요: `outputs/policy_comparison_vanilla.csv`
+- 정상 수요: `outputs/stationary/policy_comparison_vanilla.csv`
+- 새 체크포인트: 각 수요 폴더의 `reinforce_vanilla.pt` (이전 `reinforce.pt`와 호환되지 않음)
 
-## 7. 비교 결과
+## 7. 이전 비교 결과 (가치 기준선 REINFORCE)
+
+아래 수치는 변경 전 REINFORCE + 가치 기준선의 역사적 결과다. 순수 REINFORCE의 성능은 재학습·재평가 후 새 CSV에서 확인해야 한다.
 
 평가 에피소드 20개, 시드 1000부터. 학습 3000 에피소드.
 

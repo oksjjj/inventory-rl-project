@@ -2,7 +2,7 @@
 
 실제 구현은 reinforce_agent.py, actor_critic_agent.py, dqn_agent.py 이다.
 
-    ReinforceNet      — REINFORCE 네트워크. V 는 G_t 기준선
+    ReinforceNet      — 순수 REINFORCE 정책망. V 없음
     ReinforceAgent    — 에피소드가 끝난 뒤 G_t 로 갱신
     ActorCriticNet    — TD actor-critic 네트워크. V 는 r+γV(s')
     ActorCriticAgent  — 매 기간 δ_t 로 갱신

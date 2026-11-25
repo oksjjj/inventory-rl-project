@@ -1,4 +1,4 @@
-"""발주량 전체를 REINFORCE + 기준선으로 학습한다. (수업 8강)
+"""발주량 전체를 순수 REINFORCE로 학습한다. (수업 8강)
 
 에피소드가 끝난 뒤에만 update_episode 를 호출한다. 매 기간 업데이트는
 train_actor_critic.py 이다.
@@ -45,8 +45,8 @@ def main() -> None:
     args = parse_args()
     # 정상 수요와 급변 수요 가중치가 서로 덮이지 않게 폴더를 나눈다.
     out_dir = ROOT / (args.out_dir or output_dir_for_demand(args.demand))
-    save_path = ROOT / args.save_path if args.save_path else out_dir / "reinforce.pt"
-    fig_path = ROOT / args.fig_path if args.fig_path else out_dir / "reinforce_train_return.png"
+    save_path = ROOT / args.save_path if args.save_path else out_dir / "reinforce_vanilla.pt"
+    fig_path = ROOT / args.fig_path if args.fig_path else out_dir / "reinforce_vanilla_train_return.png"
     env = make_serial_env(demand=args.demand)
     env.reset(seed=args.seed)
     agent = ReinforceAgent(
@@ -54,43 +54,38 @@ def main() -> None:
         act_dim=env.action_space.shape[0],  # 발주 링크 3개
     )
 
-    log_path = ROOT / args.log_path if args.log_path else out_dir / "reinforce_train_log.csv"
+    log_path = ROOT / args.log_path if args.log_path else out_dir / "reinforce_vanilla_train_log.csv"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     history_return = []
 
     with log_path.open("w", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=["episode", "return", "loss", "policy_loss", "value_loss"])
+        writer = csv.DictWriter(file, fieldnames=["episode", "return", "loss", "policy_loss"])
         writer.writeheader()
 
         for episode in range(1, args.episodes + 1):
             # 에피소드마다 시드를 바꿔 수요 난수를 다르게 한다. 예: seed=0이면 1, 2, ..., 3000
             obs, _ = env.reset(seed=args.seed + episode)
             log_probs = []
-            values = []
             rewards = []
-            entropies = []
             done = False
             agent.model.train()
             # 한 에피소드 = 기본 30기간. 여기서는 아직 가중치를 안 바꾼다.
             while not done:
-                action, log_prob, entropy, value = agent.act_and_log(obs)
+                action, log_prob = agent.act_and_log(obs)
                 obs, reward, terminated, truncated, _ = env.step(clip_order(action))
                 done = terminated or truncated  # 30기간이 끝나면 truncated=True
                 log_probs.append(log_prob)  # 이 발주의 로그확률 (업데이트에 필요)
-                values.append(value)  # 그때의 V(s)
-                entropies.append(entropy)
                 rewards.append(float(reward))  # 원본 한 기간 이익
 
             # 30기간이 다 끝난 뒤에야 G_t 를 만들 수 있다. 그래서 지금 업데이트.
-            stats = agent.update_episode(log_probs, values, rewards, entropies)
+            stats = agent.update_episode(log_probs, rewards)
             episode_return = float(sum(rewards))
             history_return.append(episode_return)
             writer.writerow({"episode": episode, **stats})
             if episode % 50 == 0 or episode == 1:
                 print(
                     f"episode {episode:4d}  return={episode_return:8.2f}  "
-                    f"loss={stats['loss']:.3f}  policy={stats['policy_loss']:.3f}  "
-                    f"value={stats['value_loss']:.3f}"
+                    f"loss={stats['loss']:.3f}  policy={stats['policy_loss']:.3f}"
                 )
 
     agent.save(save_path)
@@ -108,7 +103,7 @@ def main() -> None:
     plt.plot(moving, color="steelblue", label=f"{window}-episode mean")
     plt.xlabel("episode")
     plt.ylabel("return")
-    plt.title(f"REINFORCE + baseline (full order), demand={args.demand}")
+    plt.title(f"Vanilla REINFORCE (full order), demand={args.demand}")
     plt.legend()
     plt.tight_layout()
     plt.savefig(fig_path, dpi=120)

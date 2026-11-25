@@ -127,7 +127,7 @@ python scripts/walk_serial_steps.py --steps 3 --order 20 --seed 42
 
 ## 학습과 비교
 
-학습 정책은 REINFORCE + 가치 기준선 하나입니다. 고정 발주·재고 수준과 같은 지표로 비교합니다. 자세한 설명은 [`docs/rl_comparison.md`](docs/rl_comparison.md)에 있습니다.
+학습 정책은 순수 REINFORCE, TD Actor-Critic, DQN 세 가지입니다. 고정 발주·재고 수준과 같은 지표로 비교합니다. 순수 REINFORCE는 가치 함수와 엔트로피 보너스 없이 실제 할인 누적 보상으로 정책만 학습합니다. 자세한 설명은 [`docs/rl_comparison.md`](docs/rl_comparison.md)에 있습니다.
 
 ```bash
 source .venv/bin/activate
@@ -136,6 +136,10 @@ python scripts/compare_policies.py --demand trend_shock
 ```
 
 정상 수요로 보려면 `--demand stationary`를 쓰면 됩니다. 비교 지표는 누적 이익, 충족률, 미충족, 평균 재고, sentiment입니다.
+
+새 모델은 `reinforce_vanilla.pt`, 새 비교는 `policy_comparison_vanilla.csv`로 저장합니다. 정상 수요는 `outputs/stationary/` 아래에 저장됩니다. 기존 모델과 CSV를 보존합니다.
+
+아래 표는 **변경 전 REINFORCE + 가치 기준선**의 이전 실험 결과이며, 순수 REINFORCE의 결과가 아닙니다. 재학습 후 새 CSV에서 확인하세요.
 
 급변 수요 (`trend+shock` + goodwill), 평가 에피소드 20개(시드 1000부터):
 
