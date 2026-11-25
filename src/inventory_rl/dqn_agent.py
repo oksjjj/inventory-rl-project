@@ -262,6 +262,10 @@ class DQNAgent:
             # epsilon 은 로그용. remember() 마다 ε 는 줄어든다.
             return {"loss": 0.0, "epsilon": self.epsilon()}
 
+        # select_index 가 eval() 로 두었을 수 있다. 학습 전에 train 모드로 되돌린다.
+        # (Dropout/BN 은 없지만 딥러닝 학습 템플릿에 맞춤. target_q 는 계속 eval.)
+        self.q.train()
+
         obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
         obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)  # (64, 15)
         next_t = torch.as_tensor(next_obs, dtype=torch.float32, device=self.device)

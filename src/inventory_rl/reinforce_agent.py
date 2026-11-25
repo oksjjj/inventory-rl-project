@@ -97,6 +97,8 @@ class ReinforceAgent:
         학습 중에는 평균만 사용하지 않고 정규분포에서 샘플링한다.
         에피소드 종료 후 학습할 수 있도록 log_prob의 미분 그래프를 유지한다.
         """
+        # 학습 경로. get_action 의 eval() 뒤에 불려도 train 모드로 둔다.
+        self.model.train()
         # 1. 입력 정규화 및 배치 차원 추가: (15,) → (1,15).
         obs_t = tensor_obs(obs, self.device).unsqueeze(0)
 
@@ -119,6 +121,8 @@ class ReinforceAgent:
         rewards: list[float],
     ) -> dict[str, float]:
         """에피소드의 Monte Carlo Return G_t로 정책을 갱신한다."""
+        # get_action 이 eval() 로 두었을 수 있다. 파라미터 갱신 전에 train 모드.
+        self.model.train()
 
         # 1. 실제 보상으로 시점별 할인 누적 보상 G_t 계산.
         # 30기간이라면 G_30=0에서 시작해 G_29부터 역순으로 계산한다.

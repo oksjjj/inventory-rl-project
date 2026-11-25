@@ -83,6 +83,8 @@ class ActorCriticAgent:
 
     def act_and_log(self, obs: np.ndarray) -> tuple[np.ndarray, torch.Tensor, torch.Tensor, torch.Tensor]:
         """학습용 발주. log π, entropy, V(s) 를 한 기간 업데이트에 쓴다."""
+        # 학습 경로. get_action 의 eval() 뒤에 불려도 train 모드로 둔다.
+        self.model.train()
         obs_t = tensor_obs(obs, self.device).unsqueeze(0)
         mean, std, value = self.model(obs_t)
         # 가우시안 행동을 샘플링하고 결합 로그확률밀도를 계산한다.
@@ -107,6 +109,8 @@ class ActorCriticAgent:
         actor 손실 = −log π(a|s) × δ   (δ는 상수로 본다)
         critic 손실 = δ²
         """
+        # get_action 이 eval() 로 두었을 수 있다. 파라미터 갱신 전에 train 모드.
+        self.model.train()
         with torch.no_grad():
             _, _, next_value = self.model(tensor_obs(next_obs, self.device).unsqueeze(0))
             bootstrap = 0.0 if done else float(next_value.squeeze(0).item())
