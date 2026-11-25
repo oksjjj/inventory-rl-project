@@ -1,7 +1,9 @@
 """REINFORCE + 가치 기준선으로 발주량 전체를 학습한다. (수업 8강)
 
-표 Q[상태][행동]은 쓰지 않는다. 행동이 연속 발주량 3개라서
-신경망이 바로 발주 평균을 내고, 그 주변에서 가우시안으로 뽑아 쓴다.
+표 Q[상태][행동]은 쓰지 않는다. 정책 πθ(a|s)를 가우시안 분포로 모델링한다.
+세 공급 링크의 연속 발주량을 각각 독립적인 정규분포에서 샘플링한다.
+평균 μ_i(s)는 관측에 따라 신경망이 결정하고, 표준편차 σ_i는 링크별로 직접 학습한다.
+샘플링한 발주량은 환경에 전달하기 전에 0~80으로 제한한다.
 
 8강 슬라이드 17 (순수 REINFORCE):
     θ ← θ + α ∇ log π(a_t | s_t) × G_t
@@ -17,7 +19,7 @@
 ActorCriticNet / ActorCriticAgent 이다. 매 기간 δ_t 가 아니라 에피소드 G_t 를 쓴다.
 
 한 줄 요약:
-    1) 관측을 보고 발주량 평균 μ, 표준편차 σ, 가치 V 를 낸다.
+    1) 관측으로 발주량 평균 μ와 가치 V를 계산하고, 학습 파라미터로 표준편차 σ를 계산한다.
     2) 발주 ~ Normal(μ, σ) 에서 뽑고 환경을 한 기간 진행한다.
     3) 에피소드(30기간)가 끝나면
            G_t = r_t + γ r_{t+1} + γ² r_{t+2} + ...
@@ -44,12 +46,14 @@ _INIT_ORDER_LOGIT = math.log(0.25 / 0.75)
 
 
 class ReinforceNet(nn.Module):
-    """REINFORCE 정책망. 발주 평균 μ 와 기준선 V(s) 를 같이 낸다.
+    """REINFORCE 정책망: 가우시안 정책 πθ(a|s)와 가치 기준선 V(s)를 구성한다.
 
     공통 층(backbone)을 통과한 뒤
-      mean_head  → 세 링크의 발주 평균
+      mean_head  → 관측에 따른 세 링크의 가우시안 평균 μ_i(s)
       value_head → “이 관측에서 앞으로 받을 보상” 예측 V(s)
-    로 갈라진다. V(s) 는 정책이 아니라 G_t 의 기준선이다.
+    로 갈라진다. 표준편차 σ_i는 별도의 학습 파라미터 log_std로 결정한다.
+    정책은 세 독립 정규분포의 결합분포 πθ(a|s) = ∏_i N(a_i; μ_i(s), σ_i²)이다.
+    V(s)는 가우시안 정책의 구성 요소가 아니라 G_t의 기준선이다.
     매 기간 r + γV(s') 로 바꾸지 않는다. 그 구현은 ActorCriticAgent 이다.
     """
 
@@ -63,14 +67,20 @@ class ReinforceNet(nn.Module):
             nn.Linear(hidden, hidden),
             nn.Tanh(),
         )
-        self.mean_head = nn.Linear(hidden, act_dim)  # 출력 3칸 = 발주 링크 3개
+        # [가우시안 정책의 평균 μ(s)]
+        # 관측 s를 입력받아 세 공급 링크의 평균 발주량을 결정한다.
+        # forward()에서 sigmoid × MAX_ORDER를 적용하여 평균을 0~80으로 제한한다.
+        self.mean_head = nn.Linear(hidden, act_dim)  # 출력 3칸 = 가우시안 평균 3개
+        # [가치 기준선 V(s)] 정책 분포와는 별도로 미래 할인 누적 보상을 예측한다.
         self.value_head = nn.Linear(hidden, 1)  # 출력 1칸 = V(s)
-        # 학습 때 발주 ~ Normal(μ, σ). σ 는 양수여야 한다.
-        # σ 를 그대로 두면 옵티마이저가 음수로 만들 수 있어서
-        # 제약 없는 값 log_std 를 학습하고, 쓸 때 σ = exp(log_std).
-        # Parameter: 관측을 안 거치는 학습 변수. 세 링크 공통으로 같은 σ.
-        # torch.full((3,), 1.0) = [1, 1, 1]. exp(1)≈2.72 가 시작 σ.
-        # 예: μ=20 이면 발주가 대략 17~23 근처에서 뽑힌다 (나중에 clamp 0.05~12).
+        # [가우시안 정책의 표준편차 σ]
+        # 각 링크의 발주량 a_i ~ Normal(μ_i(s), σ_i)에서 독립적으로 샘플링한다.
+        # PyTorch Normal의 두 번째 인자는 분산 σ²가 아니라 표준편차 σ이다.
+        # σ는 양수여야 하므로 제약 없는 log_std를 학습하고 σ = exp(log_std)로 변환한다.
+        # nn.Parameter: 관측을 입력받지 않는 직접 학습 변수. 상태와 무관하지만 학습 중 갱신된다.
+        # 세 링크의 log_std는 [1, 1, 1]로 초기화되지만 각 원소는 독립적으로 학습된다.
+        # 초기 σ_i = exp(1) ≈ 2.72. 평균이 20이면 약 68%가 17.28~22.72 사이에서 샘플링된다.
+        # forward()에서 σ의 범위를 0.05~12로 제한하여 탐색 크기를 조절한다.
         self.log_std = nn.Parameter(torch.full((act_dim,), 1.0))
         # 가중치는 0, 편향만 logit. 시작 직후 평균 발주 ≈ (20, 20, 20).
         nn.init.zeros_(self.mean_head.weight)
@@ -78,10 +88,10 @@ class ReinforceNet(nn.Module):
 
     def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         hidden = self.backbone(obs)
-        # sigmoid 가 0~1, 곱하면 0~MAX_ORDER. 음수 발주가 평균으로 안 나온다.
+        # 가우시안 정책의 상태별 평균 μ(s): sigmoid × MAX_ORDER로 0~80 범위에 맞춘다.
         # 예: sigmoid=0.25 → mean=80*0.25=20
         mean = self.max_order * torch.sigmoid(self.mean_head(hidden))
-        # 너무 작으면 탐색이 없고, 너무 크면 발주가 난리가 난다.
+        # 가우시안 정책의 링크별 표준편차 σ: 작으면 평균 주변을 탐색하고, 크면 넓게 탐색한다.
         std = self.log_std.exp().clamp(0.05, 12.0)
         value = self.value_head(hidden).squeeze(-1)  # (batch, 1) → (batch,)
         return mean, std, value
@@ -138,9 +148,13 @@ class ReinforceAgent:
         """
         obs_t = self._tensor_obs(obs).unsqueeze(0)  # 배치 차원 1칸 추가
         mean, std, value = self.model(obs_t)
+        # 정책 πθ(a|s)를 세 링크의 독립 가우시안 분포로 구성한다.
         dist = Normal(mean, std)
+        # 평균을 그대로 사용하지 않고 정책 분포에서 연속 행동을 샘플링한다.
+        # 실제 환경에는 학습 스크립트에서 clip_order를 적용한 발주량을 전달한다.
         sampled = dist.sample()  # 예: 평균 (20,20,20) 근처에서 (18.1, 23.4, 19.0)
-        # 링크가 3개라 로그확률도 3개. 합쳐서 “이 발주 벡터”의 로그확률로 쓴다.
+        # 독립 분포의 결합 확률밀도는 각 링크 확률밀도의 곱이다.
+        # 로그를 취하면 합이 되므로 세 링크의 로그확률밀도를 합산한다.
         log_prob = dist.log_prob(sampled).sum(dim=-1)
         entropy = dist.entropy().sum(dim=-1)
         action = sampled[0].detach().cpu().numpy()  # 환경에 넣을 numpy 3칸
