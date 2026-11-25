@@ -1,7 +1,6 @@
 """발주량 전체를 순수 REINFORCE로 학습한다. (수업 8강)
 
-에피소드가 끝난 뒤에만 update_episode 를 호출한다. 매 기간 업데이트는
-train_actor_critic.py 이다.
+에피소드가 끝난 뒤에 update_episode를 한 번 호출한다.
 
 한 에피소드 흐름:
     reset → (관측 보고 발주 뽑기 → step → 보상 저장) × 30기간
@@ -14,44 +13,26 @@ train_actor_critic.py 이다.
 
 from __future__ import annotations
 
-import argparse
 import csv
 import sys
 from pathlib import Path
 
-import matplotlib.pyplot as plt
-import numpy as np
-import torch
 
 # scripts/ 에서 실행해도 src/inventory_rl 을 import 하게 경로를 넣는다.
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "src"))
 
-from inventory_rl.env import clip_order, make_serial_env, output_dir_for_demand
+from inventory_rl.env import clip_order, make_serial_env
+from inventory_rl.training_utils import (
+    parse_train_args, seed_training, training_paths, finish_training,
+)
 from inventory_rl.reinforce_agent import ReinforceAgent
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Serial-v0 전체 발주 REINFORCE 학습")
-    parser.add_argument("--demand", choices=["stationary", "trend_shock"], default="trend_shock")
-    parser.add_argument("--episodes", type=int, default=3000)  # 30기간짜리 게임을 몇 판 돌릴지
-    parser.add_argument("--seed", type=int, default=0)
-    parser.add_argument("--out-dir", type=str, default="")
-    parser.add_argument("--save-path", type=str, default="")
-    parser.add_argument("--log-path", type=str, default="")
-    parser.add_argument("--fig-path", type=str, default="")
-    return parser.parse_args()
-
-
 def main() -> None:
-    args = parse_args()
-    # 환경 난수 외에도 모델 초기화와 행동 샘플링 난수를 고정한다.
-    np.random.seed(args.seed)
-    torch.manual_seed(args.seed)
-    # 정상 수요와 급변 수요 가중치가 서로 덮이지 않게 폴더를 나눈다.
-    out_dir = ROOT / (args.out_dir or output_dir_for_demand(args.demand))
-    save_path = ROOT / args.save_path if args.save_path else out_dir / "reinforce_vanilla.pt"
-    fig_path = ROOT / args.fig_path if args.fig_path else out_dir / "reinforce_vanilla_train_return.png"
+    args = parse_train_args("Serial-v0 전체 발주 REINFORCE 학습")
+    seed_training(args.seed)
+    save_path, log_path, fig_path = training_paths(ROOT, args, "reinforce_vanilla")
     env = make_serial_env(demand=args.demand)
     env.reset(seed=args.seed)
     agent = ReinforceAgent(
@@ -59,8 +40,6 @@ def main() -> None:
         act_dim=env.action_space.shape[0],  # 발주 링크 3개
     )
 
-    log_path = ROOT / args.log_path if args.log_path else out_dir / "reinforce_vanilla_train_log.csv"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
     history_return = []
 
     with log_path.open("w", newline="") as file:
@@ -93,30 +72,8 @@ def main() -> None:
                     f"loss={stats['loss']:.3f}  policy={stats['policy_loss']:.3f}"
                 )
 
-    agent.save(save_path)
-    env.close()
-
-    # 한 에피소드 보상은 수요 난수 때문에 흔들린다. 50개 평균으로 추세를 본다.
-    window = max(1, min(50, len(history_return)))
-    # i=0 이면 자기 자신만, i=49 이면 0~49의 평균
-    moving = [
-        sum(history_return[max(0, i - window + 1) : i + 1]) / (i - max(0, i - window + 1) + 1)
-        for i in range(len(history_return))
-    ]
-    plt.figure(figsize=(8, 4))
-    plt.plot(history_return, color="lightgray", label="episode return")
-    plt.plot(moving, color="steelblue", label=f"{window}-episode mean")
-    plt.xlabel("episode")
-    plt.ylabel("return")
-    plt.title(f"Vanilla REINFORCE (full order), demand={args.demand}")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig(fig_path, dpi=120)
-    plt.close()
-
-    print(f"저장: {save_path}")
-    print(f"로그: {log_path}")
-    print(f"곡선: {fig_path}")
+    finish_training(agent, env, history_return, save_path, log_path, fig_path,
+                    f"Vanilla REINFORCE (full order), demand={args.demand}")
 
 
 if __name__ == "__main__":

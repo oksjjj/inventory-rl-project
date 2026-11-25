@@ -82,7 +82,10 @@ flowchart TB
 ```text
 src/inventory_rl/
 ├── env.py                 환경 생성. 수요 설정, 발주 상한 80
-├── obs.py                 관측 15칸을 나눠 신경망 입력으로
+├── obs.py                 관측 정규화 및 Tensor 변환
+├── model_utils.py         공통 장치·은닉층·경사 갱신·가중치 저장/로드
+├── gaussian_policy.py     연속 발주 정책의 초기화·평균·표준편차·샘플링
+├── training_utils.py      공통 학습 옵션·시드·경로·학습 곡선
 ├── reinforce_agent.py     가우시안 정책 + REINFORCE 업데이트
 ├── actor_critic_agent.py  가우시안 정책 + TD actor-critic 업데이트
 ├── dqn_agent.py           이산 발주 125칸 + DQN 업데이트
@@ -96,6 +99,7 @@ scripts/
 ├── train_reinforce.py     REINFORCE 학습 진입점
 ├── train_actor_critic.py  TD actor-critic 학습 진입점
 ├── train_dqn.py           DQN 학습 진입점
+├── smoke_test_agents.py   3개 에이전트 학습 및 저장/로드 검사
 └── compare_policies.py    비교 진입점
 
 notebooks/inspect_env_interface.ipynb
@@ -280,13 +284,14 @@ gym.make("GymInvMgmt/Serial-v0", demand_config=stationary)
 원본 시뮬레이터를 먼저 고치지 말고, 우리가 추가한 파일만 위에서 아래로 보면 된다.
 
 1. `src/inventory_rl/env.py` — 환경 생성, 수요 두 종류, 발주 상한 80
-2. `src/inventory_rl/obs.py` — 관측 15칸 의미와 스케일
+2. `src/inventory_rl/obs.py` — 관측 15칸 의미와 스케일, Tensor 변환
 3. `scripts/walk_serial_steps.py` 또는 노트북 — `reset`/`step` 한 기간
 4. `src/inventory_rl/policies.py` — 학습하지 않는 두 기준선
 5. `src/inventory_rl/dqn_agent.py` — 7강 value-based
 6. `src/inventory_rl/reinforce_agent.py` — 8강 순수 REINFORCE
 7. `src/inventory_rl/actor_critic_agent.py` — 8강 TD actor-critic
-8. `scripts/train_*.py` → `scripts/compare_policies.py` → `evaluate.py`
+8. `model_utils.py`, `gaussian_policy.py` — 학습에 필요한 공통 함수
+9. `scripts/train_*.py` → `training_utils.py` → `scripts/compare_policies.py` → `evaluate.py`
 
 스크립트는 모두 `sys.path.insert(0, ROOT/"src")` 를 해서 `import inventory_rl` 이 된다. `src.` 를 붙이지 않는다.
 
@@ -328,3 +333,13 @@ Advantage Actor-Critic ∇ log π × (Q − V)
 ```
 
 지금 세 번째는 TD actor-critic $\nabla \log\pi \times \delta_t$ 만 있다.
+
+## 공통 함수 구조
+
+- `obs.py`: `scale_obs`는 NumPy 배열을 정규화하고 `tensor_obs`는 정규화 후 Tensor로 변환한다. DQN 버퍼의 관측은 이미 정규화되어 있으므로 배치 학습에서는 다시 나누지 않는다.
+- `model_utils.py`: `select_device`, `make_backbone`, `update_parameters`, `save_weights`, `load_weights`. 기존 네트워크 파라미터 이름과 저장 키(`q` 또는 `model`)를 유지한다.
+- `gaussian_policy.py`: `initialize_gaussian`, `gaussian_parameters`, `sample_gaussian`, `gaussian_eval_action`. 연속 발주 정책의 평균과 표준편차, 독립 가우시안 샘플링을 공통화한다.
+- `training_utils.py`: `parse_train_args`, `seed_training`, `training_paths`, `save_training_curve`, `finish_training`. 학습 루프는 알고리즘별 스크립트에 두고 공통 입출력만 분리한다.
+- `compare_policies.py`: 학습 정책의 체크포인트 확인, 로드, 평가 등록을 한 반복문에서 처리한다.
+
+학습 수식, 하이퍼파라미터, 체크포인트 형식 및 CLI는 유지한다. `python scripts/smoke_test_agents.py`로 세 모델의 학습과 저장/로드를 확인할 수 있다.

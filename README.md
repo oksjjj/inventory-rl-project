@@ -168,3 +168,12 @@ done
 | 학습 정책(DQN) | 2033.90 | 93.22% | 102.95 | 63.27 | 1.09 |
 
 DQN이 두 시나리오에서 가장 높은 누적 이익을 달성했다. 급변 수요에서 Actor-Critic은 충족률 100%지만 평균 재고가 166.06으로 높다. DQN의 경험 재사용과 고정 목표망, TD 학습 및 갱신 횟수 차이가 성능에 기여했을 가능성이 있으나 제거 실험 및 복수 학습 시드가 필요하다. REINFORCE는 순수 Monte Carlo 정책 경사이며 가치 기준선과 entropy 보너스를 쓰지 않는다.
+
+### 공통 함수와 실행 검사
+
+관측 전처리는 `obs.py`, 신경망 구성·경사 갱신·저장/복원은 `model_utils.py`, 연속 가우시안 정책은 `gaussian_policy.py`, 공통 학습 실행·곡선 저장은 `training_utils.py`에서 관리합니다. 각 에이전트에는 알고리즘별 학습 수식과 동작을 유지합니다.
+
+```bash
+python -m compileall src scripts
+python scripts/smoke_test_agents.py
+```

@@ -85,52 +85,31 @@ def main() -> None:
         ("재고 수준", lambda obs, current_env, policy=base_stock: policy.get_action(obs, current_env)),
     ]
 
-    checkpoint = ROOT / args.checkpoint if args.checkpoint else out_dir / "reinforce_vanilla.pt"
-    if checkpoint.exists():
-        agent = ReinforceAgent(obs_dim=obs_dim, act_dim=act_dim)
+    # 모델 종류에 따라 생성 인자만 다르고, 체크포인트 로드와 평가 등록은 동일하다.
+    learned_specs = [
+        ("학습 정책(Vanilla REINFORCE)", ReinforceAgent,
+         {"obs_dim": obs_dim, "act_dim": act_dim},
+         args.checkpoint, "reinforce_vanilla.pt", "train_reinforce.py"),
+        ("학습 정책(Actor-Critic)", ActorCriticAgent,
+         {"obs_dim": obs_dim, "act_dim": act_dim},
+         args.ac_checkpoint, "actor_critic.pt", "train_actor_critic.py"),
+        ("학습 정책(DQN)", DQNAgent,
+         {"obs_dim": obs_dim, "n_links": act_dim},
+         args.dqn_checkpoint, "dqn.pt", "train_dqn.py"),
+    ]
+    for name, agent_cls, kwargs, custom_path, filename, script in learned_specs:
+        checkpoint = ROOT / custom_path if custom_path else out_dir / filename
+        if not checkpoint.exists():
+            print(f"체크포인트가 없어 {name}은 비교에서 빠집니다: {checkpoint}")
+            print(f"먼저 python scripts/{script} --demand {args.demand} 를 실행하세요.")
+            continue
+        agent = agent_cls(**kwargs)
         agent.load(checkpoint)
-        # 평가에서는 평균 발주만 쓴다. 학습 때처럼 가우시안에서 뽑지 않는다.
+        # 평가 시 Gaussian은 평균 발주량, DQN은 최대 Q 행동을 선택한다.
         policies.append(
-            (
-                "학습 정책(Vanilla REINFORCE)",
-                lambda obs, current_env, learned=agent: learned.get_action(obs, current_env, deterministic=True),
-            )
+            (name, lambda obs, current_env, learned=agent:
+             learned.get_action(obs, current_env, deterministic=True))
         )
-    else:
-        print(f"체크포인트가 없어 학습 정책은 비교에서 빠집니다: {checkpoint}")
-        print(f"먼저 python scripts/train_reinforce.py --demand {args.demand} 를 실행하세요.")
-
-    ac_ckpt = ROOT / args.ac_checkpoint if args.ac_checkpoint else out_dir / "actor_critic.pt"
-    if ac_ckpt.exists():
-        ac_agent = ActorCriticAgent(obs_dim=obs_dim, act_dim=act_dim)
-        ac_agent.load(ac_ckpt)
-        policies.append(
-            (
-                "학습 정책(Actor-Critic)",
-                lambda obs, current_env, learned=ac_agent: learned.get_action(
-                    obs, current_env, deterministic=True
-                ),
-            )
-        )
-    else:
-        print(f"체크포인트가 없어 actor-critic은 비교에서 빠집니다: {ac_ckpt}")
-        print(f"먼저 python scripts/train_actor_critic.py --demand {args.demand} 를 실행하세요.")
-
-    dqn_ckpt = ROOT / args.dqn_checkpoint if args.dqn_checkpoint else out_dir / "dqn.pt"
-    if dqn_ckpt.exists():
-        dqn = DQNAgent(obs_dim=obs_dim, n_links=act_dim)
-        dqn.load(dqn_ckpt)
-        policies.append(
-            (
-                "학습 정책(DQN)",
-                lambda obs, current_env, learned=dqn: learned.get_action(
-                    obs, current_env, deterministic=True
-                ),
-            )
-        )
-    else:
-        print(f"체크포인트가 없어 DQN은 비교에서 빠집니다: {dqn_ckpt}")
-        print(f"먼저 python scripts/train_dqn.py --demand {args.demand} 를 실행하세요.")
 
     env.close()
     if args.require_all and len(policies) != 5:
