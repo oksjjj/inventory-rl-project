@@ -51,7 +51,7 @@ def main() -> None:
             rewards = []
             last_stats = {"loss": 0.0, "policy_loss": 0.0, "value_loss": 0.0, "td_error": 0.0}
             done = False
-            agent.model.train()
+            # train() 은 act_and_log / learn_step 안에서 호출한다.
             while not done:
                 action, log_prob, entropy, value = agent.act_and_log(obs)
                 next_obs, reward, terminated, truncated, _ = env.step(clip_order(action))

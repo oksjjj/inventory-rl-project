@@ -47,8 +47,7 @@ def main() -> None:
             obs, _ = env.reset(seed=args.seed + episode)
             rewards = []
             done = False
-            # REINFORCE·actor-critic 학습 스크립트와 같이 에피소드 시작 시 train 모드.
-            agent.q.train()
+            # train() 은 learn() 안에서 호출한다. (행동 선택은 select_index 의 eval)
             while not done:
                 action, index = agent.act_and_index(obs)  # 예: index=6 → action=[20, 20, 0]
                 next_obs, reward, terminated, truncated, _ = env.step(clip_order(action))

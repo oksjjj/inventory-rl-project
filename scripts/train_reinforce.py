@@ -52,7 +52,7 @@ def main() -> None:
             log_probs = []
             rewards = []
             done = False
-            agent.model.train()
+            # train() 은 act_and_log / update_episode 안에서 호출한다.
             # 한 에피소드 = 기본 30기간. 여기서는 아직 가중치를 안 바꾼다.
             while not done:
                 action, log_prob = agent.act_and_log(obs)
