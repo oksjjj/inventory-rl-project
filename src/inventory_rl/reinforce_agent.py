@@ -1,13 +1,10 @@
-"""순수 REINFORCE (Vanilla REINFORCE): 가우시안 정책만 학습한다.
-
-정책 πθ(a|s)는 세 공급 링크의 독립 정규분포로 구성한다.
-가치 함수 V(s), Critic, Advantage 기준선, 엔트로피 보너스는 사용하지 않는다.
+"""REINFORCE: 실제 할인 누적 보상을 이용하여 정책을 학습한다.
 
 수업의 기본 정책 경사 식:
     θ ← θ + α G_t ∇θ log πθ(a_t|s_t)
     G_t = r_t + γr_(t+1) + γ²r_(t+2) + ...
 
-이 구현은 기존 실험의 보상 스케일(/50)과 에피소드 단위 평균 손실을 유지한다.
+학습에는 보상을 50으로 나누어 사용하며, 에피소드 내 정책 손실을 평균한다.
 손실 = -mean(G_t × log πθ(a_t|s_t)).
 환경 보상을 직접 미분하지 않고 샘플링한 행동의 로그확률밀도를 미분한다.
 
@@ -37,11 +34,10 @@ _INIT_ORDER_LOGIT = math.log(0.25 / 0.75)
 
 
 class ReinforceNet(nn.Module):
-    """가우시안 정책망: 상태별 평균 μ(s)와 링크별 표준편차 σ만 반환한다.
+    """가우시안 정책망: 상태별 평균 μ(s)와 링크별 표준편차 σ를 반환한다.
 
     πθ(a|s) = ∏_i N(a_i; μ_i(s), σ_i²)
     평균은 신경망이 관측에 따라 결정하고, 표준편차는 별도로 학습한다.
-    상태 가치 V(s)를 출력하는 head는 존재하지 않는다.
     """
 
     def __init__(self, obs_dim: int, act_dim: int, hidden: int = 64, max_order: float = MAX_ORDER) -> None:
@@ -83,10 +79,10 @@ class ReinforceNet(nn.Module):
         # 평균만 제한하며 샘플링한 행동 자체는 이후 clip_order로 제한한다.
         mean = self.max_order * torch.sigmoid(self.mean_head(hidden))
 
-        # exp로 양수 표준편차를 만들고 기존 실험의 범위 0.05~12를 유지한다.
+        # exp로 양수 표준편차를 만들고 0.05~12 범위로 제한한다.
         # 초기 평균 20, σ≈2.72이면 약 95%의 샘플은 14.7~25.3이다.
         # σ가 작으면 좁게, 크면 넓게 탐험한다. clamp 범위 밖에서는 경사가 0일 수 있다.
-        # 순수 REINFORCE에서는 표준편차도 오직 정책 손실을 통해 학습된다.
+        # 평균과 표준편차는 정책 손실을 통해 함께 학습된다.
         std = self.log_std.exp().clamp(0.05, 12.0)
         return mean, std
 
@@ -103,7 +99,6 @@ class ReinforceAgent:
         reward_scale: float = 50.0,
         device: str | None = None,
     ) -> None:
-        # 기존 실험과 동일한 학습률, 할인율, 보상 스케일을 유지한다.
         # Mac Apple Silicon은 MPS, 사용 불가 시 CPU에서 실행한다.
         if device is None:
             device = "mps" if torch.backends.mps.is_available() else "cpu"
@@ -112,7 +107,6 @@ class ReinforceAgent:
         self.reward_scale = reward_scale
 
         # optimizer는 backbone, mean_head, log_std를 학습한다.
-        # Critic이나 별도의 가치 함수 optimizer는 존재하지 않는다.
         self.model = ReinforceNet(obs_dim, act_dim).to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
@@ -123,13 +117,13 @@ class ReinforceAgent:
         return torch.as_tensor(scale_obs(obs), dtype=torch.float32, device=self.device)
 
     def get_action(self, obs: np.ndarray, env, deterministic: bool = True) -> np.ndarray:
-        """평가용 발주: 기존 비교와 동일하게 기본적으로 정책의 평균을 사용한다."""
+        """평가용 발주: 기본적으로 학습된 정책의 평균을 사용한다."""
         self.model.eval()
         # eval은 평가 모드, no_grad는 자동 미분 기록을 끄는 기능이다.
         with torch.no_grad():
             # (15,) → (1,15); model 호출 시 forward 실행.
             mean, std = self.model(self._tensor_obs(obs).unsqueeze(0))
-            # 학습된 상태별 평균을 쓰므로 고정 발주와는 다르다.
+            # 결정론적 평가에서는 상태별 평균, 확률적 평가에서는 샘플을 사용한다.
             sampled = mean[0] if deterministic else Normal(mean, std).sample()[0]
         # Gymnasium에 전달할 NumPy 발주 벡터 (3,), 범위 0~80.
         return clip_order(sampled.cpu().numpy())
@@ -174,15 +168,14 @@ class ReinforceAgent:
         log_probs: list[torch.Tensor],
         rewards: list[float],
     ) -> dict[str, float]:
-        """Monte Carlo Return G_t만 사용하여 순수 REINFORCE를 수행한다."""
+        """에피소드의 Monte Carlo Return G_t로 정책을 갱신한다."""
 
         # 1. 실제 보상으로 시점별 할인 누적 보상 G_t 계산.
         # 30기간이라면 G_30=0에서 시작해 G_29부터 역순으로 계산한다.
-        # G_t = r_t/50 + γG_(t+1). 보상 /50은 기존 학습 스케일을 유지한 것이다.
+        # G_t = r_t/50 + γG_(t+1). 보상 /50은 학습 신호의 크기를 조절한다.
         # 예: 보상 [10,20,30], γ=0.99이면
         # G_2=0.6, G_1=0.4+0.99×0.6=0.994,
         # G_0=0.2+0.99×0.994=1.18406.
-        # 다음 상태 가치 추정이나 TD 오차를 사용하지 않는다.
         returns = []
         discounted = 0.0
         for reward in reversed(rewards):
@@ -196,15 +189,13 @@ class ReinforceAgent:
         returns_t = torch.tensor(returns, dtype=torch.float32, device=self.device)
         logp = torch.cat(log_probs)
 
-        # 3. 순수 REINFORCE 정책 손실.
+        # 3. REINFORCE 정책 손실.
         # L = -mean(G_t × log πθ(a_t|s_t)).
         # G_t>0이면 해당 행동의 로그확률밀도를 높이는 방향으로,
         # G_t<0이면 낮추는 방향으로 정책 경사를 계산한다.
         # 예: G=2, logπ=-3 → L=6. logπ=-2가 되면 L=4로 감소한다.
-        # 가치 기준선을 빼지 않으므로 "기대보다 잘했는가"가 아니라 실제 Return을 사용한다.
         # - 부호는 경사상승을 경사하강으로 구현하기 위한 것이다.
-        # 기존 구현과 동일하게 γ는 G_t 안에 적용하고 별도 γ^t는 곱하지 않는다.
-        # value_loss, Advantage, entropy_loss 모두 사용하지 않는다.
+        # 이 구현에서는 할인율 γ를 G_t 계산에 적용한다(별도 γ^t 가중치 없음).
         policy_loss = -(logp * returns_t).mean()
 
         # 4. 정책 파라미터 갱신. 에피소드당 한 번만 수행한다.
@@ -212,7 +203,7 @@ class ReinforceAgent:
         self.optimizer.zero_grad()
         # backward: 각 정책 파라미터의 경사를 계산한다.
         policy_loss.backward()
-        # 전체 경사 norm을 1로 제한해 큰 갱신을 완화한다(기존 설정 유지).
+        # 전체 경사 norm을 1로 제한해 큰 갱신을 완화한다.
         nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
         # Adam이 backbone, mean_head, log_std를 실제로 갱신한다.
         self.optimizer.step()
@@ -225,12 +216,12 @@ class ReinforceAgent:
         }
 
     def save(self, path: str | Path) -> None:
-        # 가중치와 log_std만 저장한다. 이전 가치 기준선 모델과 구조가 다르다.
+        # 학습된 정책망의 가중치와 log_std를 저장한다.
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
         torch.save({"model": self.model.state_dict()}, path)
 
     def load(self, path: str | Path) -> None:
-        # 순수 REINFORCE 체크포인트만 읽는다. 이전 value_head 포함 모델은 호환되지 않는다.
+        # 저장된 정책 파라미터를 복원한다.
         payload = torch.load(path, map_location=self.device, weights_only=True)
         self.model.load_state_dict(payload["model"])
