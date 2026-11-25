@@ -104,7 +104,7 @@ done
 
 비교 지표는 계획서와 같다. 누적 이익, 충족률, 미충족, 평균 재고, sentiment.
 
-- 급변 수요: `outputs/policy_comparison_vanilla.csv`
+- 급변 수요: `outputs/trend_shock/policy_comparison_vanilla.csv`
 - 정상 수요: `outputs/stationary/policy_comparison_vanilla.csv`
 - 새 체크포인트: 각 수요 폴더의 `reinforce_vanilla.pt` (이전 `reinforce.pt`와 호환되지 않음)
 

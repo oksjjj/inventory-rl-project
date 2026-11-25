@@ -7,9 +7,4 @@ __pycache__/
 # 학습 가중치·로그·곡선은 제외. 정책 비교 CSV만 추적한다.
 outputs/**
 !outputs/**/
-!outputs/policy_comparison.csv
-!outputs/stationary/policy_comparison.csv
-!outputs/policy_comparison_vanilla.csv
-!outputs/stationary/policy_comparison_vanilla.csv
-!outputs/policy_comparison_7.csv
-!outputs/stationary/policy_comparison_7.csv
+!outputs/*/policy_comparison_vanilla.csv

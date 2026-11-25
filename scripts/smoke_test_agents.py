@@ -16,11 +16,14 @@ sys.path.insert(0, str(ROOT / "src"))
 from inventory_rl.dqn_agent import DQNAgent
 from inventory_rl.reinforce_agent import ReinforceAgent
 from inventory_rl.actor_critic_agent import ActorCriticAgent
-from inventory_rl.env import make_serial_env, clip_order
+from inventory_rl.env import make_serial_env, clip_order, output_dir_for_demand
 from inventory_rl.obs import scale_obs, tensor_obs
 
 
 def main():
+    # 두 수요 환경의 저장 경로가 각각의 이름으로 분리되는지 검사한다.
+    assert output_dir_for_demand("stationary") == "outputs/stationary"
+    assert output_dir_for_demand("trend_shock") == "outputs/trend_shock"
     np.random.seed(0)
     torch.manual_seed(0)
     with tempfile.TemporaryDirectory() as tmp:

@@ -143,7 +143,7 @@ done
 
 정상 수요로 보려면 `--demand stationary`를 쓰면 됩니다. 비교 지표는 누적 이익, 충족률, 미충족, 평균 재고, sentiment입니다.
 
-새 모델은 `reinforce_vanilla.pt`, 새 비교는 `policy_comparison_vanilla.csv`로 저장합니다. 정상 수요는 `outputs/stationary/` 아래에 저장됩니다. 기존 모델과 CSV를 보존합니다.
+새 모델은 `reinforce_vanilla.pt`, 새 비교는 `policy_comparison_vanilla.csv`로 저장합니다. 모든 학습·평가 결과는 `outputs/<demand>/`에 저장합니다. 정상 수요는 `outputs/stationary/`, 급변 수요는 `outputs/trend_shock/`을 사용합니다.
 
 최신 결과는 학습 3,000 에피소드, 평가 20 에피소드(환경 시드 10000~10019), 결정론적 정책 기준이다. 기존 7개 비교 CSV에서 최종 5개 정책 행만 추출한 값이며 새 학습 결과는 아니다. 이전 CSV는 이력으로 보존한다.
 

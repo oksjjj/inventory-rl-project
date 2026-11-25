@@ -49,10 +49,10 @@ def demand_label(demand: str) -> str:
 
 
 def output_dir_for_demand(demand: str) -> str:
-    """수요마다 체크포인트가 섞이지 않게 저장 폴더를 나눈다."""
-    if demand == "stationary":
-        return "outputs/stationary"  # 정상 수요 가중치
-    return "outputs"  # trend_shock 가중치. 예전 경로와 같게 둠
+    """수요 이름별로 학습 및 평가 결과를 저장할 폴더를 반환한다."""
+    if demand not in DEMAND_PRESETS:
+        raise ValueError(f"unknown demand {demand!r}. use one of {sorted(DEMAND_PRESETS)}")
+    return f"outputs/{demand}"
 
 
 def make_serial_env(num_periods: int = 30, demand: str = "trend_shock") -> gym.Env:

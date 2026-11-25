@@ -182,9 +182,9 @@ make_serial_env()
         → 에피소드마다
               act_and_log(관측) → env.step(발주) 를 30기간
               update_episode(...)          # 에피소드가 끝난 뒤에 한 번, G_t (기준선 없음)
-    → outputs/.../reinforce_vanilla.pt
-    → outputs/.../reinforce_vanilla_train_log.csv
-    → outputs/.../reinforce_vanilla_train_return.png
+    → outputs/<demand>/reinforce_vanilla.pt
+    → outputs/<demand>/reinforce_vanilla_train_log.csv
+    → outputs/<demand>/reinforce_vanilla_train_return.png
 ```
 
 `reinforce_agent.py` 가 `obs.scale_obs` 로 관측을 나눈 뒤 신경망에 넣는다.
@@ -197,9 +197,9 @@ make_serial_env()
         → 매 기간
               act_and_log(관측) → env.step(발주)
               learn_step(...)              # δ = r + γV(s') − V(s)
-    → outputs/.../actor_critic.pt
-    → outputs/.../actor_critic_train_log.csv
-    → outputs/.../actor_critic_train_return.png
+    → outputs/<demand>/actor_critic.pt
+    → outputs/<demand>/actor_critic_train_log.csv
+    → outputs/<demand>/actor_critic_train_return.png
 ```
 
 가우시안 정책의 평균·표준편차 구조는 같지만 Actor-Critic에만 가치 head가 있다. 학습 시점도 다르다. REINFORCE는 30기간이 끝난 뒤 $G_t$, actor-critic은 매 기간 TD 오차다.
@@ -212,9 +212,9 @@ make_serial_env()
         → 매 기간
               act_and_index(관측) → env.step(이산 발주)
               remember(...) → learn()     # 버퍼가 찬 뒤 매 기간 한 번
-    → outputs/.../dqn.pt
-    → outputs/.../dqn_train_log.csv
-    → outputs/.../dqn_train_return.png
+    → outputs/<demand>/dqn.pt
+    → outputs/<demand>/dqn_train_log.csv
+    → outputs/<demand>/dqn_train_return.png
 ```
 
 `dqn_agent.py` 도 `obs.scale_obs` 로 관측을 나눈다. 링크마다 `{0, 20, 40, 60, 80}` 다섯 칸이라 행동이 125개다.
@@ -230,7 +230,7 @@ make_serial_env()
         ↘
      evaluate_policy  (같은 시드, 같은 수요)
         → compute_kpis
-        → outputs/.../policy_comparison_vanilla.csv
+        → outputs/<demand>/policy_comparison_vanilla.csv
 ```
 
 다섯 정책이 모두 `env.clip_order` 로 발주를 0~80에 맞춘다. DQN은 그 안에서 이산 칸만 고른다.
@@ -250,7 +250,7 @@ make_serial_env(demand="stationary")
 
 | 수요 | 폴더 |
 |---|---|
-| `trend_shock` (기본) | `outputs/` |
+| `trend_shock` (기본) | `outputs/trend_shock/` |
 | `stationary` | `outputs/stationary/` |
 
 같은 이름 파일:
