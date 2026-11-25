@@ -13,8 +13,8 @@
 코드에서 손실에 마이너스를 붙이는 이유는 PyTorch 가 경사하강만 해서다.
 −log π × A 를 줄이면 log π × A 를 올리는 것과 같다.
 
-이 파일의 클래스 이름 ActorCritic 은 네트워크 구조 이름일 뿐이다.
-8강의 TD actor-critic(매 기간 δ_t)은 actor_critic_agent.py 이다.
+네트워크 이름은 ReinforceNet. 8강 TD actor-critic 은 actor_critic_agent.py 의
+ActorCriticNet / ActorCriticAgent 이다. 매 기간 δ_t 가 아니라 에피소드 G_t 를 쓴다.
 
 한 줄 요약:
     1) 관측을 보고 발주량 평균 μ, 표준편차 σ, 가치 V 를 낸다.
@@ -43,11 +43,11 @@ from inventory_rl.obs import scale_obs
 _INIT_ORDER_LOGIT = math.log(0.25 / 0.75)
 
 
-class ActorCritic(nn.Module):
-    """REINFORCE 용 네트워크. 8강의 TD actor-critic 에이전트가 아니다.
+class ReinforceNet(nn.Module):
+    """REINFORCE 정책망. 발주 평균 μ 와 기준선 V(s) 를 같이 낸다.
 
     공통 층(backbone)을 통과한 뒤
-      mean_head  → 세 링크의 발주 평균 (actor)
+      mean_head  → 세 링크의 발주 평균
       value_head → “이 관측에서 앞으로 받을 보상” 예측 V(s)
     로 갈라진다. V(s) 는 정책이 아니라 G_t 의 기준선이다.
     매 기간 r + γV(s') 로 바꾸지 않는다. 그 구현은 ActorCriticAgent 이다.
@@ -102,7 +102,7 @@ class ReinforceAgent:
         self.gamma = gamma  # 할인율. 1에 가까울수록 먼 기간 보상도 지금 발주 탓으로 본다.
         self.entropy_coef = entropy_coef  # entropy 가 클수록 발주를 더 다양하게 뽑는다.
         self.reward_scale = reward_scale  # 원본 보상 합이 수백이라, 나눠야 V 학습이 안정적이다.
-        self.model = ActorCritic(obs_dim, act_dim).to(self.device)
+        self.model = ReinforceNet(obs_dim, act_dim).to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
     def _tensor_obs(self, obs: np.ndarray) -> torch.Tensor:

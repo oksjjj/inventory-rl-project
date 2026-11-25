@@ -289,14 +289,15 @@ gym.make("GymInvMgmt/Serial-v0", demand_config=stationary)
 
 스크립트는 모두 `sys.path.insert(0, ROOT/"src")` 를 해서 `import inventory_rl` 이 된다. `src.` 를 붙이지 않는다.
 
-### 이름 함정
+### 클래스 이름
 
 | 이름 | 실제 |
 |---|---|
-| `reinforce_agent.ActorCritic` | REINFORCE 네트워크. V 는 $G_t$ 기준선 |
-| `actor_critic_agent.ActorCriticAgent` | 8강 TD actor-critic |
-| `actor_critic_agent.ActorCriticNet` | 그 에이전트의 네트워크 |
-| `scripts/train_actor_critic.py` | 예전엔 REINFORCE 별칭. 지금은 TD actor-critic 학습 |
+| `reinforce_agent.ReinforceNet` | REINFORCE 네트워크. V 는 $G_t$ 기준선 |
+| `reinforce_agent.ReinforceAgent` | 에피소드가 끝난 뒤 $G_t$ 로 갱신 |
+| `actor_critic_agent.ActorCriticNet` | TD actor-critic 네트워크. V 는 $r+\gamma V(s')$ |
+| `actor_critic_agent.ActorCriticAgent` | 8강 TD actor-critic. 매 기간 $\delta_t$ |
+| `scripts/train_actor_critic.py` | TD actor-critic 학습. REINFORCE 가 아님 |
 
 `agent.py` 는 별칭만 export 한다. 학습 스크립트는 각 파일을 직접 import 한다.
 

@@ -2,16 +2,23 @@
 
 실제 구현은 reinforce_agent.py, actor_critic_agent.py, dqn_agent.py 이다.
 
-이름 주의:
-    ActorCritic       — REINFORCE 네트워크 (reinforce_agent.py)
-    ActorCriticAgent  — 8강 TD actor-critic (actor_critic_agent.py)
-    ActorCriticNet    — 그 TD 에이전트가 쓰는 네트워크
+    ReinforceNet      — REINFORCE 네트워크. V 는 G_t 기준선
+    ReinforceAgent    — 에피소드가 끝난 뒤 G_t 로 갱신
+    ActorCriticNet    — TD actor-critic 네트워크. V 는 r+γV(s')
+    ActorCriticAgent  — 매 기간 δ_t 로 갱신
+    DQNAgent          — 이산 발주 Q
+
 스크립트는 이 파일을 거치지 않고 각 에이전트를 직접 import 한다.
 """
 
 from inventory_rl.actor_critic_agent import ActorCriticAgent, ActorCriticNet
 from inventory_rl.dqn_agent import DQNAgent
-from inventory_rl.reinforce_agent import ActorCritic, ReinforceAgent
+from inventory_rl.reinforce_agent import ReinforceAgent, ReinforceNet
 
-# from inventory_rl.agent import ActorCritic 하면 REINFORCE 망이 나온다. TD 가 아님.
-__all__ = ["ActorCritic", "ActorCriticAgent", "ActorCriticNet", "DQNAgent", "ReinforceAgent"]
+__all__ = [
+    "ActorCriticAgent",
+    "ActorCriticNet",
+    "DQNAgent",
+    "ReinforceAgent",
+    "ReinforceNet",
+]
