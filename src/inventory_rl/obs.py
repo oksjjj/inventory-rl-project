@@ -18,6 +18,7 @@ OBS_SCALE 로 칸마다 나눠 대략 0~1 근처로 정규화한다.
 from __future__ import annotations
 
 import numpy as np
+import torch
 
 # 정규화 나누기. 원본 관측 / OBS_SCALE 이면 대략 0~1.
 # 80 = 발주 상한 MAX_ORDER, 100·200 = 시작 재고 I0, 30 = 에피소드 길이.
@@ -44,3 +45,10 @@ def scale_obs(obs: np.ndarray) -> np.ndarray:
     obs = np.asarray(obs, dtype=np.float32).reshape(-1)
     # Serial-v0 는 항상 15칸. 길이가 더 짧으면 나누는 쪽도 앞부분만 맞춘다.
     return obs / OBS_SCALE[: obs.shape[0]]
+
+
+def tensor_obs(obs: np.ndarray, device: torch.device) -> torch.Tensor:
+    """원본 관측을 정규화하고 float32 Tensor로 변환한다."""
+    # DQN Replay Buffer는 이미 정규화된 배열을 저장한다.
+    # 버퍼의 배치를 변환할 때는 재정규화하지 않고 torch.as_tensor를 사용한다.
+    return torch.as_tensor(scale_obs(obs), dtype=torch.float32, device=device)

@@ -27,7 +27,8 @@ import torch
 from torch import nn
 
 from inventory_rl.env import clip_order
-from inventory_rl.obs import scale_obs
+from inventory_rl.obs import scale_obs, tensor_obs
+from inventory_rl.model_utils import select_device, make_backbone, update_parameters, save_weights, load_weights
 
 # 링크 하나당 고를 수 있는 발주량. 세 링크를 조합하면 행동이 125개.
 ORDER_LEVELS = (0.0, 20.0, 40.0, 60.0, 80.0)
@@ -134,13 +135,9 @@ class QNetwork(nn.Module):
 
     def __init__(self, obs_dim: int, n_actions: int, hidden: int = 64) -> None:
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(obs_dim, hidden),  # 15 → 64
-            nn.Tanh(),
-            nn.Linear(hidden, hidden),  # 64 → 64
-            nn.Tanh(),
-            nn.Linear(hidden, n_actions),  # 64 → 125. 칸 하나가 한 이산 발주의 Q
-        )
+        # 공통 은닉층 뒤에 Q값 출력층을 붙인다 (64 → 125).
+        self.net = make_backbone(obs_dim, hidden)
+        self.net.append(nn.Linear(hidden, n_actions))
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
         # 배치면 (64, 15) → (64, 125). 한 줄이면 unsqueeze 후 (1, 125).
@@ -166,10 +163,7 @@ class DQNAgent:
         reward_scale: float = 50.0,
         device: str | None = None,
     ) -> None:
-        if device is None:
-            # Mac M 계열은 mps. 없으면 cpu.
-            device = "mps" if torch.backends.mps.is_available() else "cpu"
-        self.device = torch.device(device)
+        self.device = select_device(device)
         self.n_links = n_links  # Serial 발주 링크 3
         self.n_actions = n_discrete_actions(n_links)  # 125
         self.gamma = gamma  # 할인. y = r + γ max Q(s',·)
@@ -207,11 +201,6 @@ class DQNAgent:
         #     60000 이후 → 1.0 + 1.0×(−0.95)   = 0.05   20번에 1번만 무작위
         return self.epsilon_start + frac * (self.epsilon_end - self.epsilon_start)
 
-    def _tensor_obs(self, obs: np.ndarray) -> torch.Tensor:
-        # 환경 원본 관측(수요 20 등)을 OBS_SCALE 로 나눈 뒤 GPU/MPS 텐서로.
-        # 신경망은 이 정규화된 15칸만 본다.
-        return torch.as_tensor(scale_obs(obs), dtype=torch.float32, device=self.device)
-
     def select_index(self, obs: np.ndarray, greedy: bool = False) -> int:
         """ε-greedy. 반환은 발주량이 아니라 0~124 번호.
 
@@ -223,7 +212,7 @@ class DQNAgent:
         self.q.eval()
         with torch.no_grad():  # 행동 고를 때는 경사 안 쌓음
             # unsqueeze(0): (15,) → (1,15). [0] 로 배치 차원 제거 → 길이 125
-            q_values = self.q(self._tensor_obs(obs).unsqueeze(0))[0]
+            q_values = self.q(tensor_obs(obs, self.device).unsqueeze(0))[0]
             return int(torch.argmax(q_values).item())  # Q가 가장 큰 칸의 번호. 예: 6
 
     def get_action(self, obs: np.ndarray, env, deterministic: bool = True) -> np.ndarray:
@@ -304,10 +293,7 @@ class DQNAgent:
             target = rew_t + self.gamma * max_next * (1.0 - done_t)
         loss = torch.nn.functional.mse_loss(q_sa, target)  # 평균 (Q(s,a) − y)²
 
-        self.optimizer.zero_grad()
-        loss.backward()  # 온라인망 θ 만 미분
-        nn.utils.clip_grad_norm_(self.q.parameters(), 1.0)  # 경사 폭주 방지
-        self.optimizer.step()  # θ ← θ − lr ∇L
+        update_parameters(self.q, self.optimizer, loss)
 
         if self.total_steps % self.target_sync == 0:
             self.target_q.load_state_dict(self.q.state_dict())  # θ⁻ ← θ. 200스텝마다
@@ -315,12 +301,8 @@ class DQNAgent:
         return {"loss": float(loss.item()), "epsilon": self.epsilon()}
 
     def save(self, path: str | Path) -> None:
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        # 평가에 쓰는 건 온라인 Q. 버퍼·옵티마이저는 안 넣음.
-        torch.save({"q": self.q.state_dict()}, path)
+        save_weights(self.q, path, key="q")
 
     def load(self, path: str | Path) -> None:
-        payload = torch.load(path, map_location=self.device, weights_only=True)
-        self.q.load_state_dict(payload["q"])
+        load_weights(self.q, path, key="q", device=self.device)
         self.target_q.load_state_dict(self.q.state_dict())  # 평가 때도 타깃을 맞춰 둠

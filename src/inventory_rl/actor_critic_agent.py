@@ -22,20 +22,18 @@
 
 from __future__ import annotations
 
-import math
 from pathlib import Path
 
 import numpy as np
 import torch
 from torch import nn
-from torch.distributions import Normal
 
-from inventory_rl.env import MAX_ORDER, clip_order
-from inventory_rl.obs import scale_obs
-
-# REINFORCE 와 같은 시작 발주. sigmoid(x)=20/80=0.25 → x=ln(0.25/0.75)
-_INIT_ORDER_LOGIT = math.log(0.25 / 0.75)
-
+from inventory_rl.env import MAX_ORDER
+from inventory_rl.gaussian_policy import (
+    initialize_gaussian, gaussian_parameters, sample_gaussian, gaussian_eval_action,
+)
+from inventory_rl.obs import tensor_obs
+from inventory_rl.model_utils import select_device, make_backbone, update_parameters, save_weights, load_weights
 
 class ActorCriticNet(nn.Module):
     """actor 머리(발주 평균)와 critic 머리(V)를 한 네트워크에 둔다."""
@@ -43,23 +41,15 @@ class ActorCriticNet(nn.Module):
     def __init__(self, obs_dim: int, act_dim: int, hidden: int = 64, max_order: float = MAX_ORDER) -> None:
         super().__init__()
         self.max_order = max_order
-        self.backbone = nn.Sequential(
-            nn.Linear(obs_dim, hidden),  # 15 → 64
-            nn.Tanh(),
-            nn.Linear(hidden, hidden),
-            nn.Tanh(),
-        )
+        self.backbone = make_backbone(obs_dim, hidden)
         self.mean_head = nn.Linear(hidden, act_dim)  # 발주 평균 3칸
         self.value_head = nn.Linear(hidden, 1)  # V(s) 1칸
-        self.log_std = nn.Parameter(torch.full((act_dim,), 1.0))  # exp(1)≈2.7
-        nn.init.zeros_(self.mean_head.weight)
-        nn.init.constant_(self.mean_head.bias, _INIT_ORDER_LOGIT)  # 시작 평균 ≈ 20
+        # 평균 출력층과 링크별 표준편차를 초기화한다.
+        self.log_std = initialize_gaussian(self.mean_head, act_dim)
 
     def forward(self, obs: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor]:
         hidden = self.backbone(obs)
-        # 예: sigmoid=0.25 → mean=80*0.25=20
-        mean = self.max_order * torch.sigmoid(self.mean_head(hidden))
-        std = self.log_std.exp().clamp(0.05, 12.0)
+        mean, std = gaussian_parameters(hidden, self.mean_head, self.log_std, self.max_order)
         value = self.value_head(hidden).squeeze(-1)
         return mean, std, value
 
@@ -77,33 +67,26 @@ class ActorCriticAgent:
         reward_scale: float = 50.0,
         device: str | None = None,
     ) -> None:
-        if device is None:
-            device = "mps" if torch.backends.mps.is_available() else "cpu"
-        self.device = torch.device(device)
+        self.device = select_device(device)
         self.gamma = gamma
         self.entropy_coef = entropy_coef
         self.reward_scale = reward_scale
         self.model = ActorCriticNet(obs_dim, act_dim).to(self.device)
         self.optimizer = torch.optim.Adam(self.model.parameters(), lr=lr)
 
-    def _tensor_obs(self, obs: np.ndarray) -> torch.Tensor:
-        return torch.as_tensor(scale_obs(obs), dtype=torch.float32, device=self.device)
-
     def get_action(self, obs: np.ndarray, env, deterministic: bool = True) -> np.ndarray:
         """평가용. 평균 μ 만 넣는다."""
         self.model.eval()
         with torch.no_grad():
-            mean, std, _ = self.model(self._tensor_obs(obs).unsqueeze(0))
-            sampled = mean[0] if deterministic else Normal(mean, std).sample()[0]
-        return clip_order(sampled.cpu().numpy())
+            mean, std, _ = self.model(tensor_obs(obs, self.device).unsqueeze(0))
+            return gaussian_eval_action(mean, std, deterministic)
 
     def act_and_log(self, obs: np.ndarray) -> tuple[np.ndarray, torch.Tensor, torch.Tensor, torch.Tensor]:
         """학습용 발주. log π, entropy, V(s) 를 한 기간 업데이트에 쓴다."""
-        obs_t = self._tensor_obs(obs).unsqueeze(0)
+        obs_t = tensor_obs(obs, self.device).unsqueeze(0)
         mean, std, value = self.model(obs_t)
-        dist = Normal(mean, std)
-        sampled = dist.sample()  # 평균 근처에서 발주 3칸을 뽑음
-        log_prob = dist.log_prob(sampled).sum(dim=-1)  # 세 링크 로그확률의 합
+        # 가우시안 행동을 샘플링하고 결합 로그확률밀도를 계산한다.
+        sampled, log_prob, dist = sample_gaussian(mean, std)
         entropy = dist.entropy().sum(dim=-1)
         action = sampled[0].detach().cpu().numpy()
         return action, log_prob, entropy, value.squeeze(0)
@@ -125,7 +108,7 @@ class ActorCriticAgent:
         critic 손실 = δ²
         """
         with torch.no_grad():
-            _, _, next_value = self.model(self._tensor_obs(next_obs).unsqueeze(0))
+            _, _, next_value = self.model(tensor_obs(next_obs, self.device).unsqueeze(0))
             bootstrap = 0.0 if done else float(next_value.squeeze(0).item())
         # 예: r=30, V(s')=2.0, γ=0.99 → y=30/50 + 0.99*2.0 = 2.58
         td_target = reward / self.reward_scale + self.gamma * bootstrap
@@ -135,10 +118,7 @@ class ActorCriticAgent:
         entropy_loss = -entropy.squeeze()
         loss = policy_loss + 0.5 * value_loss + self.entropy_coef * entropy_loss
 
-        self.optimizer.zero_grad()
-        loss.backward()
-        nn.utils.clip_grad_norm_(self.model.parameters(), 1.0)
-        self.optimizer.step()
+        update_parameters(self.model, self.optimizer, loss)
         return {
             "loss": float(loss.item()),
             "policy_loss": float(policy_loss.item()),
@@ -147,10 +127,7 @@ class ActorCriticAgent:
         }
 
     def save(self, path: str | Path) -> None:
-        path = Path(path)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        torch.save({"model": self.model.state_dict()}, path)
+        save_weights(self.model, path, key="model")
 
     def load(self, path: str | Path) -> None:
-        payload = torch.load(path, map_location=self.device, weights_only=True)
-        self.model.load_state_dict(payload["model"])
+        load_weights(self.model, path, key="model", device=self.device)
