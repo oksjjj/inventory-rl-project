@@ -180,9 +180,19 @@ class DQNAgent:
         self.buffer = ReplayBuffer(buffer_size, obs_dim)
 
     def epsilon(self) -> float:
-        """처음엔 거의 무작위, 갈수록 greedy. 선형으로 줄어든다."""
-        # 예: 0스텝 → 1.0, 30000스텝 → 0.525, 60000스텝 이후 → 0.05
+        """지금 ε. select_index 가 이 확률로 0~124 를 무작위로 고른다.
+
+        기본값: 시작 1.0, 끝 0.05, 6만 스텝에 걸쳐 직선으로 감소.
+        1.0 이면 항상 무작위(탐험). 0 이면 항상 Q가 큰 칸(활용).
+        학습이 진행될수록 탐험을 줄인다. 6만 스텝 이후에는 0.05 로 고정.
+        """
+        # 감소를 얼마나 했는지 0~1. 6만을 넘으면 1 로 자른다.
+        # 예: 0스텝 → 0,  30000스텝 → 0.5,  60000스텝 → 1,  90000스텝 → 1
         frac = min(1.0, self.total_steps / self.epsilon_decay_steps)
+        # 시작 + 진행비율×(끝−시작). 끝<시작이라 frac 이 커질수록 ε 가 작아진다.
+        # 예: 0스텝   → 1.0 + 0  ×(0.05−1.0) = 1.0    전부 무작위
+        #     30000   → 1.0 + 0.5×(−0.95)     = 0.525  절반 정도 무작위
+        #     60000 이후 → 1.0 + 1.0×(−0.95)   = 0.05   20번에 1번만 무작위
         return self.epsilon_start + frac * (self.epsilon_end - self.epsilon_start)
 
     def _tensor_obs(self, obs: np.ndarray) -> torch.Tensor:
