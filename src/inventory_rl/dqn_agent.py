@@ -35,7 +35,8 @@ N_LEVELS = len(ORDER_LEVELS)
 
 
 def n_discrete_actions(n_links: int) -> int:
-    return N_LEVELS**n_links  # 3링크면 5**3=125
+    # 링크마다 5칸. Serial 3링크 → 5**3=125. DQN 출력 칸 수.
+    return N_LEVELS**n_links
 
 
 def index_to_order(index: int, n_links: int = 3) -> np.ndarray:
@@ -59,11 +60,15 @@ def index_to_order(index: int, n_links: int = 3) -> np.ndarray:
       index=124 → 칸 (4,4,4) → 발주 (80, 80, 80)
     """
     orders = np.zeros(n_links, dtype=np.float64)
-    remaining = int(index)
+    remaining = int(index)  # 예: 6. 아래에서 5로 나누며 자릿수를 떼어 낸다.
     for i in range(n_links):
-        orders[i] = ORDER_LEVELS[remaining % N_LEVELS]  # 일의 자리부터 링크0
-        remaining //= N_LEVELS  # 다음 링크는 5로 나눈 몫
-    return clip_order(orders)
+        # 지금 자릿수 = remaining 을 5로 나눈 나머지. 그게 이 링크의 칸 번호.
+        # 예 index=6, i=0: 6%5=1 → ORDER_LEVELS[1]=20  (유통→소매)
+        #              i=1: 1%5=1 → 20                   (공장→유통)
+        #              i=2: 0%5=0 → 0                    (원자재→공장)
+        orders[i] = ORDER_LEVELS[remaining % N_LEVELS]
+        remaining //= N_LEVELS  # 다음 자릿수. 6//5=1, 1//5=0
+    return clip_order(orders)  # 0~80. 이미 그 안이라 값은 그대로.
 
 
 class ReplayBuffer:
@@ -95,17 +100,20 @@ class ReplayBuffer:
         next_obs: np.ndarray,
         done: bool,
     ) -> None:
-        i = self._i % self.capacity  # 예: capacity=50000, i=50000 → 칸 0 에 덮어씀
-        self.obs[i] = obs
-        self.next_obs[i] = next_obs
-        self.actions[i] = action
-        self.rewards[i] = reward
-        self.dones[i] = float(done)
+        # 원형 버퍼. _i 가 50000 이면 칸 0 을 덮어쓰고, 50001 이면 칸 1.
+        i = self._i % self.capacity
+        self.obs[i] = obs  # 정규화된 s. remember() 가 scale_obs 한 값
+        self.next_obs[i] = next_obs  # s'
+        self.actions[i] = action  # 예: 6. 발주량 [20,20,0] 이 아님
+        self.rewards[i] = reward  # 환경이 준 한 기간 이익. 아직 /50 안 함
+        self.dones[i] = float(done)  # 기간 29 step 이면 True → 1.0
         self._i += 1
+        # 줄 수는 capacity 에서 멈춤. 덮어써도 size 는 50000 유지.
         self.size = min(self.size + 1, self.capacity)
 
     def sample(self, batch_size: int) -> tuple[np.ndarray, ...]:
-        idx = np.random.randint(0, self.size, size=batch_size)  # 예: 64개 무작위 칸
+        # 들어 있는 줄 0..size 에서 64개를 복원추출. 시간 순이 아님.
+        idx = np.random.randint(0, self.size, size=batch_size)
         return (
             self.obs[idx],
             self.actions[idx],
@@ -116,9 +124,11 @@ class ReplayBuffer:
 
 
 class QNetwork(nn.Module):
-    """관측 → 이산 행동 125개의 Q값.
+    """행동가치 Q(s,a) 를 신경망으로 근사한다.
 
-    7강 Atari 그림의 마지막 FC 가 행동마다 Q 하나를 내던 것과 같다.
+    입력은 관측 s 하나. 출력은 125칸. k번 칸 = Q(s, index=k).
+    a 를 입력에 붙이지 않는다. 한 번에 모든 이산 발주의 Q 를 낸다.
+    7강 Atari 마지막 FC 가 행동마다 Q 하나를 내던 것과 같다.
     여기 관측은 15차원 벡터라 CNN 대신 MLP 를 쓴다.
     """
 
@@ -127,17 +137,18 @@ class QNetwork(nn.Module):
         self.net = nn.Sequential(
             nn.Linear(obs_dim, hidden),  # 15 → 64
             nn.Tanh(),
-            nn.Linear(hidden, hidden),
+            nn.Linear(hidden, hidden),  # 64 → 64
             nn.Tanh(),
             nn.Linear(hidden, n_actions),  # 64 → 125. 칸 하나가 한 이산 발주의 Q
         )
 
     def forward(self, obs: torch.Tensor) -> torch.Tensor:
-        return self.net(obs)  # 예: shape (64, 125)
+        # 배치면 (64, 15) → (64, 125). 한 줄이면 unsqueeze 후 (1, 125).
+        return self.net(obs)
 
 
 class DQNAgent:
-    """7강 value-based 제어. 정책은 Q 에서 입실론-그리디로 꺼낸다."""
+    """7강 value-based 제어. 정책 네트워크는 없고, Q 에서 ε-greedy 로 행동을 꺼낸다."""
 
     def __init__(
         self,
@@ -156,27 +167,28 @@ class DQNAgent:
         device: str | None = None,
     ) -> None:
         if device is None:
+            # Mac M 계열은 mps. 없으면 cpu.
             device = "mps" if torch.backends.mps.is_available() else "cpu"
         self.device = torch.device(device)
-        self.n_links = n_links
-        self.n_actions = n_discrete_actions(n_links)
-        self.gamma = gamma
-        self.batch_size = batch_size
+        self.n_links = n_links  # Serial 발주 링크 3
+        self.n_actions = n_discrete_actions(n_links)  # 125
+        self.gamma = gamma  # 할인. y = r + γ max Q(s',·)
+        self.batch_size = batch_size  # learn() 한 번에 꺼내는 전이 수
         self.warmup = warmup  # 이만큼 채우기 전에는 학습 안 함
         self.target_sync = target_sync  # 200스텝마다 타깃망을 온라인망과 같게
-        self.epsilon_start = epsilon_start
-        self.epsilon_end = epsilon_end
-        self.epsilon_decay_steps = epsilon_decay_steps
-        self.reward_scale = reward_scale
-        self.total_steps = 0
+        self.epsilon_start = epsilon_start  # 처음엔 전부 무작위
+        self.epsilon_end = epsilon_end  # 나중엔 20번에 1번만 무작위
+        self.epsilon_decay_steps = epsilon_decay_steps  # 그 사이 6만 스텝
+        self.reward_scale = reward_scale  # 보상 대략 ±수십이라 50으로 나눔
+        self.total_steps = 0  # remember() 호출 횟수. ε 감소·타깃 동기화에 씀
 
-        self.q = QNetwork(obs_dim, self.n_actions).to(self.device)
+        self.q = QNetwork(obs_dim, self.n_actions).to(self.device)  # 온라인망. 학습되는 θ
         # 타깃 네트워크. y = r + γ max Q_target(s', a') 를 계산할 때 쓴다.
         # 온라인 Q와 같은 값이면 목표가 같이 움직여서 학습이 흔들린다.
         self.target_q = QNetwork(obs_dim, self.n_actions).to(self.device)
         self.target_q.load_state_dict(self.q.state_dict())  # 처음엔 가중치 동일
-        self.target_q.eval()
-        self.optimizer = torch.optim.Adam(self.q.parameters(), lr=lr)
+        self.target_q.eval()  # 타깃은 경사 안 탐. 200스텝마다 복사만
+        self.optimizer = torch.optim.Adam(self.q.parameters(), lr=lr)  # θ 만 갱신
         self.buffer = ReplayBuffer(buffer_size, obs_dim)
 
     def epsilon(self) -> float:
@@ -196,24 +208,39 @@ class DQNAgent:
         return self.epsilon_start + frac * (self.epsilon_end - self.epsilon_start)
 
     def _tensor_obs(self, obs: np.ndarray) -> torch.Tensor:
+        # 환경 원본 관측(수요 20 등)을 OBS_SCALE 로 나눈 뒤 GPU/MPS 텐서로.
+        # 신경망은 이 정규화된 15칸만 본다.
         return torch.as_tensor(scale_obs(obs), dtype=torch.float32, device=self.device)
 
     def select_index(self, obs: np.ndarray, greedy: bool = False) -> int:
-        """ε-greedy. greedy=True 이면 평가처럼 가장 큰 Q만 고른다."""
+        """ε-greedy. 반환은 발주량이 아니라 0~124 번호.
+
+        greedy=False (학습): 확률 ε 로 아무 번호, 아니면 Q가 큰 번호.
+        greedy=True  (평가): ε 무시하고 항상 argmax Q.
+        """
         if (not greedy) and (np.random.rand() < self.epsilon()):
             return int(np.random.randint(self.n_actions))  # 0..124 아무거나
         self.q.eval()
-        with torch.no_grad():
-            q_values = self.q(self._tensor_obs(obs).unsqueeze(0))[0]  # 길이 125
-            return int(torch.argmax(q_values).item())  # Q가 가장 큰 칸의 번호
+        with torch.no_grad():  # 행동 고를 때는 경사 안 쌓음
+            # unsqueeze(0): (15,) → (1,15). [0] 로 배치 차원 제거 → 길이 125
+            q_values = self.q(self._tensor_obs(obs).unsqueeze(0))[0]
+            return int(torch.argmax(q_values).item())  # Q가 가장 큰 칸의 번호. 예: 6
 
     def get_action(self, obs: np.ndarray, env, deterministic: bool = True) -> np.ndarray:
-        """평가용. 이산 인덱스를 세 링크 발주량으로 바꿔 환경에 넣는다."""
+        """평가·비교용. compare_policies 가 이 함수를 부른다.
+
+        deterministic=True 이면 탐험 없이 argmax Q.
+        env 인자는 인터페이스 맞추기용. 여기선 안 쓴다.
+        """
         index = self.select_index(obs, greedy=deterministic)
         return index_to_order(index, n_links=self.n_links)  # 예: 6 → [20, 20, 0]
 
     def act_and_index(self, obs: np.ndarray) -> tuple[np.ndarray, int]:
-        """학습용. 탐색이 섞인 이산 행동과 그 인덱스를 같이 준다."""
+        """학습 루프용. train_dqn 이 step 전에 이걸 부른다.
+
+        발주 벡터는 env.step 에, 번호는 remember 에 넣어야 해서 둘 다 준다.
+        greedy=False 라서 ε 탐험이 섞인다.
+        """
         index = self.select_index(obs, greedy=False)
         return index_to_order(index, n_links=self.n_links), index
 
@@ -225,46 +252,54 @@ class DQNAgent:
         next_obs: np.ndarray,
         done: bool,
     ) -> None:
+        # 버퍼에는 정규화된 관측을 넣는다. 학습 때도 같은 스케일로 보게.
         self.buffer.add(scale_obs(obs), action_index, reward, scale_obs(next_obs), done)
-        self.total_steps += 1
+        self.total_steps += 1  # ε 감소, 타깃 200스텝 복사용
 
     def learn(self) -> dict[str, float]:
         """버퍼가 충분히 찬 뒤에만 Q를 한 번 맞춘다.
 
         목표 y = r/scale + γ max_a' Q_target(s', a')   (끝나면 γ항은 0)
         손실 = (Q(s,a) − y)²
+        한 번 호출 = 배치 64개로 θ 를 한 스텝 갱신. 에피소드 전체가 아님.
         """
         if self.buffer.size < self.warmup:
-            return {"loss": 0.0, "epsilon": self.epsilon()}  # 아직 안 배움
+            return {"loss": 0.0, "epsilon": self.epsilon()}  # 1000줄 채우기 전
 
         obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
-        obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)
+        obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)  # (64, 15)
         next_t = torch.as_tensor(next_obs, dtype=torch.float32, device=self.device)
-        act_t = torch.as_tensor(actions, dtype=torch.int64, device=self.device)
+        act_t = torch.as_tensor(actions, dtype=torch.int64, device=self.device)  # (64,) 예: 6
+        # 보상 대략 수십. 50으로 나눠 Q 스케일을 1 근처로.
         rew_t = torch.as_tensor(rewards, dtype=torch.float32, device=self.device) / self.reward_scale
-        done_t = torch.as_tensor(dones, dtype=torch.float32, device=self.device)
+        done_t = torch.as_tensor(dones, dtype=torch.float32, device=self.device)  # 0 또는 1
 
-        # gather: 125개 Q 중에서 그때 고른 행동의 Q만. 예: action=6 → Q[:, 6]
+        # q(obs_t) 는 (64, 125). gather 로 그때 고른 칸만.
+        # unsqueeze(1): (64,) → (64,1). squeeze(1) 로 다시 (64,).
+        # 예: actions=6 이면 각 행의 6번 칸 Q.
         q_sa = self.q(obs_t).gather(1, act_t.unsqueeze(1)).squeeze(1)
-        with torch.no_grad():
-            max_next = self.target_q(next_t).max(dim=1).values  # s'에서 제일 큰 Q
-            # 에피소드가 끝난 칸은 (1-1)=0 이라 미래 가치를 안 더함
+        with torch.no_grad():  # y 는 상수처럼. 타깃망 경사는 안 흐름
+            # target_q(next_t): (64, 125) → 행마다 최댓값. “s'에서 제일 좋은 발주”
+            max_next = self.target_q(next_t).max(dim=1).values
+            # done=1 이면 (1-1)=0 이라 미래 Q 를 안 더함. 에피소드가 거기서 끝이라서.
+            # 예: r/50=0.6, γ=0.99, max_next=2.0, done=0 → y=0.6+0.99×2=2.58
             target = rew_t + self.gamma * max_next * (1.0 - done_t)
-        loss = torch.nn.functional.mse_loss(q_sa, target)
+        loss = torch.nn.functional.mse_loss(q_sa, target)  # 평균 (Q(s,a) − y)²
 
         self.optimizer.zero_grad()
-        loss.backward()
-        nn.utils.clip_grad_norm_(self.q.parameters(), 1.0)
-        self.optimizer.step()
+        loss.backward()  # 온라인망 θ 만 미분
+        nn.utils.clip_grad_norm_(self.q.parameters(), 1.0)  # 경사 폭주 방지
+        self.optimizer.step()  # θ ← θ − lr ∇L
 
         if self.total_steps % self.target_sync == 0:
-            self.target_q.load_state_dict(self.q.state_dict())  # θ⁻ ← θ
+            self.target_q.load_state_dict(self.q.state_dict())  # θ⁻ ← θ. 200스텝마다
 
         return {"loss": float(loss.item()), "epsilon": self.epsilon()}
 
     def save(self, path: str | Path) -> None:
         path = Path(path)
         path.parent.mkdir(parents=True, exist_ok=True)
+        # 평가에 쓰는 건 온라인 Q. 버퍼·옵티마이저는 안 넣음.
         torch.save({"q": self.q.state_dict()}, path)
 
     def load(self, path: str | Path) -> None:
