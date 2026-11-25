@@ -2,28 +2,26 @@
 
 이 문서는 수업 과제용으로, 원본 시뮬레이터와 우리가 추가한 학습 코드를 구분해 적는다.
 
-학습 정책은 다섯 개다. 파일·호출 관계와 수업 식 대응은 [`docs/file_structure.md`](file_structure.md) 를 본다.
+학습 정책은 세 개다. 파일·호출 관계와 수업 식 대응은 [`docs/file_structure.md`](file_structure.md) 를 본다.
 
 - DQN: 7강, 이산 발주 `{0,20,40,60,80}`
-- 순수 REINFORCE (가치 기준선 및 entropy 없음): 8강, 연속 Gaussian / 이산 Categorical, 에피소드 수익 $G_t$
-- TD actor-critic: 8강, 연속 Gaussian / 이산 Categorical, 매 기간 $\delta_t$
+- 순수 REINFORCE (가치 기준선 및 entropy 없음): 8강, 연속 발주, 에피소드 수익 $G_t$
+- TD actor-critic: 8강, 연속 발주, 매 기간 $\delta_t$
 
-현재 비교는 `scripts/compare_policies.py` 가 일곱 줄(고정·재고 수준·DQN·REINFORCE 연속/이산·Actor-Critic 연속/이산)을 출력한다.
+현재 비교는 `scripts/compare_policies.py` 가 다섯 줄(고정·재고 수준·REINFORCE·actor-critic·DQN)을 출력한다.
 
 ## 1. 무엇을 푸는가
 
 매 기간 세 발주 링크의 수량을 정한다. 목표는 에피소드 누적 이익을 키우는 것이다.
 
-비교 정책은 일곱 개다.
+비교 정책은 다섯 개다.
 
 | 정책 | 학습 | 하는 일 |
 |---|---|---|
 | 고정 발주 | 없음 | 매 기간 같은 수량 20 |
 | 재고 수준 (base-stock) | 없음 | 재고 위치가 목표 S보다 모자라면 그 차이만큼 발주 |
-| 순수 REINFORCE (연속) | 정책 경사 | Gaussian, 실제 할인 누적 보상 |
-| 순수 REINFORCE (이산) | 정책 경사 | Categorical, 실제 할인 누적 보상 |
-| TD Actor-Critic (연속) | 정책 경사 + 가치 함수 | Gaussian, TD 오차 |
-| TD Actor-Critic (이산) | 정책 경사 + 가치 함수 | Categorical, TD 오차 |
+| 순수 REINFORCE | 정책 경사 | 실제 할인 누적 보상으로 연속 발주 정책 학습 |
+| TD Actor-Critic | 정책 경사 + 가치 함수 | TD 오차 기반 연속 발주 정책 학습 |
 | DQN | 행동가치 함수 | 125개 이산 발주 조합 학습 |
 
 ## 2. 원본과 우리가 추가한 것
@@ -36,7 +34,7 @@
 | `src/inventory_rl/policies.py` | 고정 발주, 재고 수준 기준선 |
 | `src/inventory_rl/reinforce_agent.py` | 가우시안 정책과 REINFORCE 업데이트 |
 | `scripts/train_reinforce.py` | 학습 |
-| `scripts/compare_policies.py` | 일곱 정책을 같은 KPI로 비교 |
+| `scripts/compare_policies.py` | 다섯 정책을 같은 KPI로 비교 |
 | `scripts/walk_serial_steps.py` | 환경 설명용. 정상 수요를 그대로 둔다 |
 | `notebooks/inspect_env_interface.ipynb` | `reset`/`step` 인터페이스 확인 |
 
@@ -95,58 +93,47 @@ goodwill(sentiment)은 보상 항이 아니다. 직전 기간에 미충족이 �
 ```bash
 source .venv/bin/activate
 python -m compileall src scripts
-python scripts/smoke_test_discrete.py
 
 for demand in stationary trend_shock; do
     python scripts/train_dqn.py --demand "$demand" --episodes 3000 --seed 0 || break
-    python scripts/train_reinforce.py --demand "$demand" --action-space continuous --episodes 3000 --seed 0 || break
-    python scripts/train_reinforce.py --demand "$demand" --action-space discrete --episodes 3000 --seed 0 || break
-    python scripts/train_actor_critic.py --demand "$demand" --action-space continuous --episodes 3000 --seed 0 || break
-    python scripts/train_actor_critic.py --demand "$demand" --action-space discrete --episodes 3000 --seed 0 || break
+    python scripts/train_reinforce.py --demand "$demand" --episodes 3000 --seed 0 || break
+    python scripts/train_actor_critic.py --demand "$demand" --episodes 3000 --seed 0 || break
     python scripts/compare_policies.py --demand "$demand" --eval-episodes 20 --eval-seed 10000 --require-all || break
 done
 ```
 
 비교 지표는 계획서와 같다. 누적 이익, 충족률, 미충족, 평균 재고, sentiment.
 
-- 급변 수요: `outputs/policy_comparison_7.csv`
-- 정상 수요: `outputs/stationary/policy_comparison_7.csv`
+- 급변 수요: `outputs/policy_comparison_vanilla.csv`
+- 정상 수요: `outputs/stationary/policy_comparison_vanilla.csv`
 - 새 체크포인트: 각 수요 폴더의 `reinforce_vanilla.pt` (이전 `reinforce.pt`와 호환되지 않음)
 
-## 7. 이전 비교 결과 (가치 기준선 REINFORCE)
+## 7. 최신 비교 결과
 
-아래 수치는 변경 전 REINFORCE + 가치 기준선의 역사적 결과다. 순수 REINFORCE의 성능은 재학습·재평가 후 새 CSV에서 확인해야 한다.
+최신 결과는 학습 3,000 에피소드, 평가 20 에피소드(환경 시드 10000~10019), 결정론적 정책 기준이다. 기존 7개 비교 CSV에서 최종 5개 정책 행만 추출한 값이며 새 학습 결과는 아니다. 이전 CSV는 이력으로 보존한다.
 
-평가 에피소드 20개, 시드 1000부터. 학습 3000 에피소드.
+### 정상 수요
 
-### 급변 수요 (`trend+shock` + goodwill)
+| 정책 | 누적 이익 | 충족률 | 잔여 미충족 | 평균 재고 | Goodwill |
+|---|---:|---:|---:|---:|---:|
+| 고정 발주 | 738.80 | 99.78% | 1.40 | 81.93 | 0.99 |
+| 재고 수준 | 789.38 | 99.31% | 3.25 | 30.36 | 0.82 |
+| 학습 정책(Vanilla REINFORCE) | 643.34 | 99.94% | 0.35 | 72.33 | 0.84 |
+| 학습 정책(Actor-Critic) | 942.30 | 99.91% | 0.68 | 39.56 | 1.15 |
+| 학습 정책(DQN) | 1088.53 | 99.21% | 5.60 | 37.78 | 1.15 |
 
-| 정책 | 누적 이익 | 충족률 | 미충족 | 평균 재고 | sentiment |
-|---|---|---|---|---|---|
-| 고정 발주 20 | 724.46 | 95.5% | 33.35 | 77.98 | 0.62 |
-| 재고 수준 | 805.10 | 89.8% | 64.80 | 26.93 | 0.60 |
-| 학습 정책 (REINFORCE) | 1659.64 | 94.4% | 82.21 | 117.97 | 1.06 |
-| 학습 정책 (Actor-Critic) | 1345.32 | 98.4% | 21.46 | 158.22 | 1.01 |
-| 학습 정책 (DQN) | 2120.57 | 100.0% | 0.70 | 90.11 | 1.09 |
+### 급변 수요
 
-숫자는 `outputs/policy_comparison.csv` (평가 20에피소드, 시드 1000–1019). 고정 발주 20은 수요가 커진 뒤에 따라가지 못한다. 재고 수준은 직전 수요만 보므로 급변 뒤에 목표가 낮고, 재고를 낮게 가져 미충족이 커진다. 학습 세 정책은 모두 기준선보다 이익이 크고, 그중 DQN이 가장 크다.
+| 정책 | 누적 이익 | 충족률 | 잔여 미충족 | 평균 재고 | Goodwill |
+|---|---:|---:|---:|---:|---:|
+| 고정 발주 | 726.41 | 94.80% | 35.50 | 77.62 | 0.63 |
+| 재고 수준 | 816.92 | 89.96% | 64.65 | 26.28 | 0.61 |
+| 학습 정책(Vanilla REINFORCE) | 733.54 | 95.54% | 29.36 | 59.91 | 0.60 |
+| 학습 정책(Actor-Critic) | 1439.03 | 100.00% | 0.00 | 166.06 | 1.10 |
+| 학습 정책(DQN) | 2033.90 | 93.22% | 102.95 | 63.27 | 1.09 |
 
-### 정상 수요 (`stationary` + goodwill)
-
-| 정책 | 누적 이익 | 충족률 | 미충족 | 평균 재고 | sentiment |
-|---|---|---|---|---|---|
-| 고정 발주 20 | 714.48 | 99.8% | 1.25 | 83.35 | 0.97 |
-| 재고 수준 | 761.02 | 99.1% | 4.35 | 31.34 | 0.78 |
-| 학습 정책 (REINFORCE) | 934.90 | 99.9% | 0.90 | 58.60 | 1.10 |
-| 학습 정책 (Actor-Critic) | 862.90 | 100.0% | 0.00 | 33.46 | 1.05 |
-| 학습 정책 (DQN) | 1068.68 | 98.1% | 13.05 | 41.61 | 1.14 |
-
-숫자는 `outputs/stationary/policy_comparison.csv`. 정상 수요에서도 학습 세 정책이 기준선을 넘고, DQN 이익이 가장 크다.
+DQN이 두 시나리오에서 가장 높은 누적 이익을 달성했다. 급변 수요에서 Actor-Critic은 충족률 100%지만 평균 재고가 166.06으로 높다. DQN의 경험 재사용과 고정 목표망, TD 학습 및 갱신 횟수 차이가 성능에 기여했을 가능성이 있으나 제거 실험 및 복수 학습 시드가 필요하다. REINFORCE는 순수 Monte Carlo 정책 경사이며 가치 기준선과 entropy 보너스를 쓰지 않는다.
 
 ## 8. 모델-free인지
 
 학습 코드는 수요 식, 리드타임 식, 보상 식을 풀어 발주량을 계산하지 않는다. `reset`/`step`이 준 관측과 보상만 보고 정책을 바꾼다. 원본 환경 안에서 돌아가는 모델-free 학습이다.
-
-## 동일한 이산 행동 공간에서 비교
-
-DQN 및 이산형 두 정책은 125개 발주 조합을 공유하고 초기에는 균등 탐험한다. 학습이 진행되면 ε-greedy와 Categorical 탐험은 다르게 변한다. 이산형과 연속형의 성능 차이는 행동 후보와 탐험 분포가 함께 바뀐 결과이므로 탐험 효과만 분리해 검증한 것은 아니다. AC는 연속/이산형에 동일한 entropy 계수를 사용하나 엔트로피의 정의와 크기는 다르다. 순수 REINFORCE는 entropy 보너스 없이 학습한다. 새 평가는 기본 학습 시드 1~3000과 겹치지 않는 환경 시드 10000~10019를 사용한다. 새 결과는 아직 측정하지 않았다.

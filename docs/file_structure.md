@@ -5,7 +5,7 @@
 - **원본 시뮬레이터** `vendor/gym-invmgmt` — 가져온 파일을 수정하지 않는다.
 - **우리가 추가한 코드** `src/`, `scripts/`, `notebooks/`, `docs/` — 학습·비교·설명.
 
-학습 정책은 다섯 개다(연속/이산 변형 포함).
+학습 정책은 세 개다.
 
 - REINFORCE: 연속 발주, 에피소드 수익 $G_t$
 - actor-critic: 연속 발주, 매 기간 TD 오차 $\delta_t$
@@ -33,7 +33,7 @@ inventory-rl-project/
 | REINFORCE 학습 | `python scripts/train_reinforce.py` |
 | actor-critic 학습 | `python scripts/train_actor_critic.py` |
 | DQN 학습 | `python scripts/train_dqn.py` |
-| 일곱 정책 비교 | `python scripts/compare_policies.py` |
+| 다섯 정책 비교 | `python scripts/compare_policies.py` |
 | reset/step 노트북 | `notebooks/inspect_env_interface.ipynb` |
 
 누가 누구를 호출하는지는 아래 2–7절, 수업 식과 읽는 순서는 8–9절이다.
@@ -85,7 +85,6 @@ src/inventory_rl/
 ├── obs.py                 관측 15칸을 나눠 신경망 입력으로
 ├── reinforce_agent.py     가우시안 정책 + REINFORCE 업데이트
 ├── actor_critic_agent.py  가우시안 정책 + TD actor-critic 업데이트
-├── discrete_agent.py      이산 REINFORCE·Actor-Critic
 ├── dqn_agent.py           이산 발주 125칸 + DQN 업데이트
 ├── policies.py            고정 발주, 재고 수준 (학습 없음)
 ├── evaluate.py            에피소드 실행 + KPI 평균
@@ -167,7 +166,7 @@ flowchart TB
 
 `agent.py` 는 다른 스크립트가 쓰지 않는다. `from inventory_rl.agent import ...` 를 쓰고 싶을 때 있는 별칭이다.
 
-체크포인트가 없으면 비교 스크립트는 그 학습 정책만 빼고 나머지를 출력한다.
+체크포인트가 없으면 해당 정책을 제외한다. --require-all을 주면 5개 정책 모두 준비되어야 평가한다.
 
 ## 5. 실행 흐름
 
@@ -227,10 +226,10 @@ make_serial_env()
         ↘
      evaluate_policy  (같은 시드, 같은 수요)
         → compute_kpis
-        → outputs/.../policy_comparison_7.csv
+        → outputs/.../policy_comparison_vanilla.csv
 ```
 
-일곱 정책이 모두 `env.clip_order` 로 발주를 0~80에 맞춘다. DQN과 이산형 정책은 그 안에서 동일한 125개 조합만 고른다.
+다섯 정책이 모두 `env.clip_order` 로 발주를 0~80에 맞춘다. DQN은 그 안에서 이산 칸만 고른다.
 
 ### 환경 설명 `walk_serial_steps.py`
 
@@ -261,7 +260,7 @@ gym.make("GymInvMgmt/Serial-v0", demand_config=stationary)
 - `dqn.pt` — DQN 가중치
 - `dqn_train_log.csv` — DQN 에피소드별 보상·손실·ε
 - `dqn_train_return.png` — DQN 학습 곡선
-- `policy_comparison_7.csv` — 순수 REINFORCE 포함 일곱 정책 KPI
+- `policy_comparison_vanilla.csv` — 순수 REINFORCE 포함 다섯 정책 KPI
 - 기존 `reinforce.pt` 및 `policy_comparison.csv` — 가치 기준선 버전의 이전 결과 (재사용하지 않음)
 
 ## 7. 원본에서 열어볼 파일
@@ -305,13 +304,13 @@ gym.make("GymInvMgmt/Serial-v0", demand_config=stationary)
 
 ## 9. 수업 식과 코드
 
-다섯 학습 정책이 같은 환경 `Serial-v0` 를 쓰고, 학습 신호만 다르다.
+세 학습 정책이 같은 환경 `Serial-v0` 를 쓰고, 학습 신호만 다르다.
 
 | 수업 | 코드 | 행동 | 업데이트 |
 |---|---|---|---|
 | 7강 DQN | `dqn_agent.py` `learn()` | 이산 125칸 | $y = r + \gamma \max_{a'} Q_{\theta^-}(s',a')$, MSE |
-| 8강 REINFORCE | `reinforce_agent.py` `update_episode()` | 연속 Gaussian / 이산 Categorical | $\nabla \log\pi \times G_t$, 에피소드 끝 한 번 |
-| 8강 TD actor-critic | `actor_critic_agent.py` `learn_step()` | 연속 Gaussian / 이산 Categorical | $\delta = r + \gamma V(s') - V(s)$, 매 기간 |
+| 8강 REINFORCE | `reinforce_agent.py` `update_episode()` | 연속 가우시안 | $\nabla \log\pi \times G_t$, 에피소드 끝 한 번 |
+| 8강 TD actor-critic | `actor_critic_agent.py` `learn_step()` | 연속 가우시안 | $\delta = r + \gamma V(s') - V(s)$, 매 기간 |
 
 슬라이드에 없고 코드에 있는 것:
 
@@ -329,9 +328,3 @@ Advantage Actor-Critic ∇ log π × (Q − V)
 ```
 
 지금 세 번째는 TD actor-critic $\nabla \log\pi \times \delta_t$ 만 있다.
-
-## 이산형 정책 추가
-
-`discrete_agent.py`는 DQN의 `index_to_order`와 `n_discrete_actions`를 재사용한다. `DiscretePolicyNet`은 125개 logits를 출력하고 `DiscreteActorCriticNet`은 V(s) head를 추가한다. policy_head의 W,b는 0으로 초기화해 초기 분포가 균등하다. REINFORCE는 부모 클래스의 `update_episode`를 재사용하며 AC는 같은 1-step TD 목표를 사용한다.
-
-`train_reinforce.py` 및 `train_actor_critic.py`에 `--action-space discrete`를 지정한다(기본값 continuous). 이산형 체크포인트는 `reinforce_discrete.pt`, `actor_critic_discrete.pt`, 로그와 학습 곡선은 같은 stem의 파일이다. 비교 시 연속형은 평균, 이산형은 argmax, DQN은 최대 Q 행동을 사용한다. `--require-all`로 7개 정책 누락을 막는다. `scripts/smoke_test_discrete.py`는 행동 매핑, 초기 확률, 학습 및 저장·로드를 검사한다.

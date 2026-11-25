@@ -127,45 +127,44 @@ python scripts/walk_serial_steps.py --steps 3 --order 20 --seed 42
 
 ## 학습과 비교
 
-학습 정책은 다섯 가지입니다(DQN, 순수 REINFORCE 연속/이산, TD Actor-Critic 연속/이산). 고정 발주·재고 수준과 같은 지표로 비교합니다. 순수 REINFORCE는 가치 함수와 엔트로피 보너스 없이 실제 할인 누적 보상으로 정책만 학습합니다. 자세한 설명은 [`docs/rl_comparison.md`](docs/rl_comparison.md)에 있습니다.
+학습 정책은 순수 REINFORCE, TD Actor-Critic, DQN 세 가지입니다. 고정 발주·재고 수준과 같은 지표로 비교합니다. 순수 REINFORCE는 가치 함수와 엔트로피 보너스 없이 실제 할인 누적 보상으로 정책만 학습합니다. 자세한 설명은 [`docs/rl_comparison.md`](docs/rl_comparison.md)에 있습니다.
 
 ```bash
 source .venv/bin/activate
 python -m compileall src scripts
-python scripts/smoke_test_discrete.py
 
 for demand in stationary trend_shock; do
     python scripts/train_dqn.py --demand "$demand" --episodes 3000 --seed 0 || break
-    python scripts/train_reinforce.py --demand "$demand" --action-space continuous --episodes 3000 --seed 0 || break
-    python scripts/train_reinforce.py --demand "$demand" --action-space discrete --episodes 3000 --seed 0 || break
-    python scripts/train_actor_critic.py --demand "$demand" --action-space continuous --episodes 3000 --seed 0 || break
-    python scripts/train_actor_critic.py --demand "$demand" --action-space discrete --episodes 3000 --seed 0 || break
+    python scripts/train_reinforce.py --demand "$demand" --episodes 3000 --seed 0 || break
+    python scripts/train_actor_critic.py --demand "$demand" --episodes 3000 --seed 0 || break
     python scripts/compare_policies.py --demand "$demand" --eval-episodes 20 --eval-seed 10000 --require-all || break
 done
 ```
 
 정상 수요로 보려면 `--demand stationary`를 쓰면 됩니다. 비교 지표는 누적 이익, 충족률, 미충족, 평균 재고, sentiment입니다.
 
-연속형 체크포인트는 기존 이름(`reinforce_vanilla.pt`, `actor_critic.pt`), 이산형은 `reinforce_discrete.pt`, `actor_critic_discrete.pt`입니다. 7개 정책 비교는 `policy_comparison_7.csv`로 저장합니다. 정상 수요는 `outputs/stationary/` 아래에 저장됩니다. 기존 비교 CSV는 보존되며 전체 재학습 시 기존 연속형 및 DQN 모델은 갱신됩니다.
+새 모델은 `reinforce_vanilla.pt`, 새 비교는 `policy_comparison_vanilla.csv`로 저장합니다. 정상 수요는 `outputs/stationary/` 아래에 저장됩니다. 기존 모델과 CSV를 보존합니다.
 
-아래 표는 **변경 전 REINFORCE + 가치 기준선**의 이전 실험 결과이며, 순수 REINFORCE의 결과가 아닙니다. 재학습 후 새 CSV에서 확인하세요.
+최신 결과는 학습 3,000 에피소드, 평가 20 에피소드(환경 시드 10000~10019), 결정론적 정책 기준이다. 기존 7개 비교 CSV에서 최종 5개 정책 행만 추출한 값이며 새 학습 결과는 아니다. 이전 CSV는 이력으로 보존한다.
 
-급변 수요 (`trend+shock` + goodwill), 평가 에피소드 20개(시드 1000부터):
+### 정상 수요
 
-| 정책 | 누적 이익 | 충족률 | 미충족 | 평균 재고 | sentiment |
-|---|---|---|---|---|---|
-| 고정 발주 20 | 724.46 | 95.5% | 33.35 | 77.98 | 0.62 |
-| 재고 수준 (base-stock) | 805.10 | 89.8% | 64.80 | 26.93 | 0.60 |
-| 학습 정책 (REINFORCE) | 1659.64 | 94.4% | 82.21 | 117.97 | 1.06 |
-| 학습 정책 (Actor-Critic) | 1345.32 | 98.4% | 21.46 | 158.22 | 1.01 |
-| 학습 정책 (DQN) | 2120.57 | 100.0% | 0.70 | 90.11 | 1.09 |
+| 정책 | 누적 이익 | 충족률 | 잔여 미충족 | 평균 재고 | Goodwill |
+|---|---:|---:|---:|---:|---:|
+| 고정 발주 | 738.80 | 99.78% | 1.40 | 81.93 | 0.99 |
+| 재고 수준 | 789.38 | 99.31% | 3.25 | 30.36 | 0.82 |
+| 학습 정책(Vanilla REINFORCE) | 643.34 | 99.94% | 0.35 | 72.33 | 0.84 |
+| 학습 정책(Actor-Critic) | 942.30 | 99.91% | 0.68 | 39.56 | 1.15 |
+| 학습 정책(DQN) | 1088.53 | 99.21% | 5.60 | 37.78 | 1.15 |
 
-정상 수요 (`stationary` + goodwill):
+### 급변 수요
 
-| 정책 | 누적 이익 | 충족률 | 미충족 | 평균 재고 | sentiment |
-|---|---|---|---|---|---|
-| 고정 발주 20 | 714.48 | 99.8% | 1.25 | 83.35 | 0.97 |
-| 재고 수준 (base-stock) | 761.02 | 99.1% | 4.35 | 31.34 | 0.78 |
-| 학습 정책 (REINFORCE) | 934.90 | 99.9% | 0.90 | 58.60 | 1.10 |
-| 학습 정책 (Actor-Critic) | 862.90 | 100.0% | 0.00 | 33.46 | 1.05 |
-| 학습 정책 (DQN) | 1068.68 | 98.1% | 13.05 | 41.61 | 1.14 |
+| 정책 | 누적 이익 | 충족률 | 잔여 미충족 | 평균 재고 | Goodwill |
+|---|---:|---:|---:|---:|---:|
+| 고정 발주 | 726.41 | 94.80% | 35.50 | 77.62 | 0.63 |
+| 재고 수준 | 816.92 | 89.96% | 64.65 | 26.28 | 0.61 |
+| 학습 정책(Vanilla REINFORCE) | 733.54 | 95.54% | 29.36 | 59.91 | 0.60 |
+| 학습 정책(Actor-Critic) | 1439.03 | 100.00% | 0.00 | 166.06 | 1.10 |
+| 학습 정책(DQN) | 2033.90 | 93.22% | 102.95 | 63.27 | 1.09 |
+
+DQN이 두 시나리오에서 가장 높은 누적 이익을 달성했다. 급변 수요에서 Actor-Critic은 충족률 100%지만 평균 재고가 166.06으로 높다. DQN의 경험 재사용과 고정 목표망, TD 학습 및 갱신 횟수 차이가 성능에 기여했을 가능성이 있으나 제거 실험 및 복수 학습 시드가 필요하다. REINFORCE는 순수 Monte Carlo 정책 경사이며 가치 기준선과 entropy 보너스를 쓰지 않는다.

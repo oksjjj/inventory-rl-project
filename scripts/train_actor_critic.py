@@ -1,7 +1,7 @@
 """발주량 전체를 TD actor-critic으로 학습한다. (수업 8강)
 
 예전에는 이 파일이 train_reinforce.py 의 별칭이었다. 지금은 별도 알고리즘이다.
-연속형은 Gaussian, 이산형은 Categorical 정책을 사용하며 매 기간 갱신한다.
+REINFORCE와 같은 가우시안 정책이지만, 에피소드가 끝나기를 기다리지 않는다.
 매 기간 δ = r + γV(s') − V(s) 로 actor와 critic을 바꾼다.
 
 사용:
@@ -26,12 +26,10 @@ sys.path.insert(0, str(ROOT / "src"))
 
 from inventory_rl.actor_critic_agent import ActorCriticAgent
 from inventory_rl.env import clip_order, make_serial_env, output_dir_for_demand
-from inventory_rl.discrete_agent import DiscreteActorCriticAgent
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Serial-v0 전체 발주 TD actor-critic 학습")
-    parser.add_argument("--action-space", choices=["continuous", "discrete"], default="continuous")
     parser.add_argument("--demand", choices=["stationary", "trend_shock"], default="trend_shock")
     parser.add_argument("--episodes", type=int, default=3000)  # 30기간짜리 게임을 몇 판 돌릴지
     parser.add_argument("--seed", type=int, default=0)
@@ -47,20 +45,17 @@ def main() -> None:
     # 환경 난수 외에도 모델 초기화와 행동 샘플링 난수를 고정한다.
     np.random.seed(args.seed)
     torch.manual_seed(args.seed)
-    # 연속형과 이산형의 모델 및 로그 파일을 분리한다.
-    stem = "actor_critic_discrete" if args.action_space == "discrete" else "actor_critic"
-    agent_cls = DiscreteActorCriticAgent if args.action_space == "discrete" else ActorCriticAgent
     out_dir = ROOT / (args.out_dir or output_dir_for_demand(args.demand))
-    save_path = ROOT / args.save_path if args.save_path else out_dir / f"{stem}.pt"
-    fig_path = ROOT / args.fig_path if args.fig_path else out_dir / f"{stem}_train_return.png"
+    save_path = ROOT / args.save_path if args.save_path else out_dir / "actor_critic.pt"
+    fig_path = ROOT / args.fig_path if args.fig_path else out_dir / "actor_critic_train_return.png"
     env = make_serial_env(demand=args.demand)
     env.reset(seed=args.seed)
-    agent = agent_cls(
+    agent = ActorCriticAgent(
         obs_dim=env.observation_space.shape[0],  # Serial-v0 = 15
         act_dim=env.action_space.shape[0],  # 발주 링크 3개
     )
 
-    log_path = ROOT / args.log_path if args.log_path else out_dir / f"{stem}_train_log.csv"
+    log_path = ROOT / args.log_path if args.log_path else out_dir / "actor_critic_train_log.csv"
     log_path.parent.mkdir(parents=True, exist_ok=True)
     history_return = []
 
@@ -112,7 +107,7 @@ def main() -> None:
     plt.plot(moving, color="steelblue", label=f"{window}-episode mean")
     plt.xlabel("episode")
     plt.ylabel("return")
-    plt.title(f"TD actor-critic ({args.action_space}), demand={args.demand}")
+    plt.title(f"TD actor-critic (full order), demand={args.demand}")
     plt.legend()
     plt.tight_layout()
     plt.savefig(fig_path, dpi=120)
