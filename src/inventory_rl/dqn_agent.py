@@ -263,8 +263,15 @@ class DQNAgent:
         손실 = (Q(s,a) − y)²
         한 번 호출 = 배치 64개로 θ 를 한 스텝 갱신. 에피소드 전체가 아님.
         """
+        # warmup=1000. 전이가 1000줄 찰 때까지는 Q 를 안 맞춘다.
+        # 줄이 적으면 sample(64) 이 같은 전이를 반복해서 보고,
+        # 초반은 ε≈1 이라 무작위 발주라서 Q 가 쓰레기 경험에 맞춰진다.
+        # 에피소드 30기간이면 약 33판(1000/30) 동안은 탐험·저장만.
+        # 이 return 이면 아래 sample·MSE·optimizer.step 은 실행 안 됨.
         if self.buffer.size < self.warmup:
-            return {"loss": 0.0, "epsilon": self.epsilon()}  # 1000줄 채우기 전
+            # loss 0.0 은 “아직 안 배움” 표시. 오차가 진짜 0 인 게 아님.
+            # epsilon 은 로그용. remember() 마다 ε 는 줄어든다.
+            return {"loss": 0.0, "epsilon": self.epsilon()}
 
         obs, actions, rewards, next_obs, dones = self.buffer.sample(self.batch_size)
         obs_t = torch.as_tensor(obs, dtype=torch.float32, device=self.device)  # (64, 15)
