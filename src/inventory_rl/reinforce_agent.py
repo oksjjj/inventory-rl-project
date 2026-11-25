@@ -65,8 +65,12 @@ class ReinforceNet(nn.Module):
         )
         self.mean_head = nn.Linear(hidden, act_dim)  # 출력 3칸 = 발주 링크 3개
         self.value_head = nn.Linear(hidden, 1)  # 출력 1칸 = V(s)
-        # 표준편차는 양수여야 해서 log_std 를 학습하고 exp 한다.
-        # 시작값 exp(1)≈2.7. 발주를 평균 근처에서 조금씩 흔든다.
+        # 학습 때 발주 ~ Normal(μ, σ). σ 는 양수여야 한다.
+        # σ 를 그대로 두면 옵티마이저가 음수로 만들 수 있어서
+        # 제약 없는 값 log_std 를 학습하고, 쓸 때 σ = exp(log_std).
+        # Parameter: 관측을 안 거치는 학습 변수. 세 링크 공통으로 같은 σ.
+        # torch.full((3,), 1.0) = [1, 1, 1]. exp(1)≈2.72 가 시작 σ.
+        # 예: μ=20 이면 발주가 대략 17~23 근처에서 뽑힌다 (나중에 clamp 0.05~12).
         self.log_std = nn.Parameter(torch.full((act_dim,), 1.0))
         # 가중치는 0, 편향만 logit. 시작 직후 평균 발주 ≈ (20, 20, 20).
         nn.init.zeros_(self.mean_head.weight)
