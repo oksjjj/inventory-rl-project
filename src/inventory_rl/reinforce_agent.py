@@ -106,9 +106,10 @@ class ReinforceAgent:
         # 가우시안 행동을 샘플링하고 결합 로그확률밀도를 계산한다.
         sampled, log_prob, _ = sample_gaussian(mean, std)
 
-        # 5. 환경에 전달할 행동은 NumPy로 변환한다.
-        # log_prob는 detach하지 않고 그대로 반환한다.
-        # 이번 기간에는 학습하지 않고, 에피소드 종료까지 저장한다.
+        # 5. 환경에 넣을 행동은 NumPy 로. log_prob 는 detach 하지 않는다.
+        # 이번 기간에는 학습하지 않고, train_reinforce 가 리스트에 쌓아 둔다.
+        # 에피소드가 끝나면 update_episode(log_probs, rewards) 가
+        # L = −mean(G_t × log_prob_t) 에 넣어 θ 를 바꾼다. 수업 식 ∇ log π × G_t.
         action = sampled[0].detach().cpu().numpy()
         return action, log_prob
 
