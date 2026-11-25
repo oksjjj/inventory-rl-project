@@ -63,7 +63,7 @@ flowchart TB
   end
 
   env -->|"gym.make Serial-v0"| init
-  walk -->|"gym.make 직접"| init
+  walk -->|"정상 수요"| env
   train_rf --> env
   train_ac --> env
   train_dqn --> env
@@ -156,8 +156,8 @@ flowchart TB
   agent --> ac
   agent --> dqn
   env -->|"gym.make"| gym
-  walk -->|"gym.make 직접"| gym
-  nb -->|"gym.make 직접"| gym
+  walk --> env
+  nb --> env
 ```
 
 한 줄로 말하면:
