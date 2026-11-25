@@ -8,5 +8,6 @@
 from inventory_rl.actor_critic_agent import ActorCriticAgent
 from inventory_rl.dqn_agent import DQNAgent
 from inventory_rl.reinforce_agent import ReinforceAgent
+from inventory_rl.discrete_agent import DiscreteReinforceAgent, DiscreteActorCriticAgent
 
-__all__ = ["ActorCriticAgent", "DQNAgent", "ReinforceAgent"]
+__all__ = ["ActorCriticAgent", "DQNAgent", "ReinforceAgent", "DiscreteReinforceAgent", "DiscreteActorCriticAgent"]

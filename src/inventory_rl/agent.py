@@ -1,6 +1,6 @@
 """학습 정책을 한곳에서 import 하려고 둔 파일.
 
-실제 구현은 reinforce_agent.py, actor_critic_agent.py, dqn_agent.py 이다.
+실제 구현은 reinforce_agent.py, actor_critic_agent.py, dqn_agent.py, discrete_agent.py 이다.
 
     ReinforceNet      — 순수 REINFORCE 정책망. V 없음
     ReinforceAgent    — 에피소드가 끝난 뒤 G_t 로 갱신
@@ -13,12 +13,15 @@
 
 from inventory_rl.actor_critic_agent import ActorCriticAgent, ActorCriticNet
 from inventory_rl.dqn_agent import DQNAgent
+from inventory_rl.discrete_agent import DiscreteReinforceAgent, DiscreteActorCriticAgent
 from inventory_rl.reinforce_agent import ReinforceAgent, ReinforceNet
 
 __all__ = [
     "ActorCriticAgent",
     "ActorCriticNet",
     "DQNAgent",
+    "DiscreteReinforceAgent",
+    "DiscreteActorCriticAgent",
     "ReinforceAgent",
     "ReinforceNet",
 ]

@@ -2,26 +2,28 @@
 
 이 문서는 수업 과제용으로, 원본 시뮬레이터와 우리가 추가한 학습 코드를 구분해 적는다.
 
-학습 정책은 세 개다. 파일·호출 관계와 수업 식 대응은 [`docs/file_structure.md`](file_structure.md) 를 본다.
+학습 정책은 다섯 개다. 파일·호출 관계와 수업 식 대응은 [`docs/file_structure.md`](file_structure.md) 를 본다.
 
 - DQN: 7강, 이산 발주 `{0,20,40,60,80}`
-- 순수 REINFORCE (가치 기준선 및 entropy 없음): 8강, 연속 발주, 에피소드 수익 $G_t$
-- TD actor-critic: 8강, 연속 발주, 매 기간 $\delta_t$
+- 순수 REINFORCE (가치 기준선 및 entropy 없음): 8강, 연속 Gaussian / 이산 Categorical, 에피소드 수익 $G_t$
+- TD actor-critic: 8강, 연속 Gaussian / 이산 Categorical, 매 기간 $\delta_t$
 
-현재 비교는 `scripts/compare_policies.py` 가 다섯 줄(고정·재고 수준·REINFORCE·actor-critic·DQN)을 출력한다.
+현재 비교는 `scripts/compare_policies.py` 가 일곱 줄(고정·재고 수준·DQN·REINFORCE 연속/이산·Actor-Critic 연속/이산)을 출력한다.
 
 ## 1. 무엇을 푸는가
 
 매 기간 세 발주 링크의 수량을 정한다. 목표는 에피소드 누적 이익을 키우는 것이다.
 
-비교 정책은 다섯 개다.
+비교 정책은 일곱 개다.
 
 | 정책 | 학습 | 하는 일 |
 |---|---|---|
 | 고정 발주 | 없음 | 매 기간 같은 수량 20 |
 | 재고 수준 (base-stock) | 없음 | 재고 위치가 목표 S보다 모자라면 그 차이만큼 발주 |
-| 순수 REINFORCE | 정책 경사 | 실제 할인 누적 보상으로 연속 발주 정책 학습 |
-| TD Actor-Critic | 정책 경사 + 가치 함수 | TD 오차 기반 연속 발주 정책 학습 |
+| 순수 REINFORCE (연속) | 정책 경사 | Gaussian, 실제 할인 누적 보상 |
+| 순수 REINFORCE (이산) | 정책 경사 | Categorical, 실제 할인 누적 보상 |
+| TD Actor-Critic (연속) | 정책 경사 + 가치 함수 | Gaussian, TD 오차 |
+| TD Actor-Critic (이산) | 정책 경사 + 가치 함수 | Categorical, TD 오차 |
 | DQN | 행동가치 함수 | 125개 이산 발주 조합 학습 |
 
 ## 2. 원본과 우리가 추가한 것
@@ -34,7 +36,7 @@
 | `src/inventory_rl/policies.py` | 고정 발주, 재고 수준 기준선 |
 | `src/inventory_rl/reinforce_agent.py` | 가우시안 정책과 REINFORCE 업데이트 |
 | `scripts/train_reinforce.py` | 학습 |
-| `scripts/compare_policies.py` | 다섯 정책을 같은 KPI로 비교 |
+| `scripts/compare_policies.py` | 일곱 정책을 같은 KPI로 비교 |
 | `scripts/walk_serial_steps.py` | 환경 설명용. 정상 수요를 그대로 둔다 |
 | `notebooks/inspect_env_interface.ipynb` | `reset`/`step` 인터페이스 확인 |
 
@@ -92,18 +94,23 @@ goodwill(sentiment)은 보상 항이 아니다. 직전 기간에 미충족이 �
 
 ```bash
 source .venv/bin/activate
+python -m compileall src scripts
+python scripts/smoke_test_discrete.py
 
-python scripts/train_reinforce.py --demand trend_shock --episodes 3000
-python scripts/compare_policies.py --demand trend_shock
-
-python scripts/train_reinforce.py --demand stationary --episodes 3000
-python scripts/compare_policies.py --demand stationary
+for demand in stationary trend_shock; do
+    python scripts/train_dqn.py --demand "$demand" --episodes 3000 --seed 0 || break
+    python scripts/train_reinforce.py --demand "$demand" --action-space continuous --episodes 3000 --seed 0 || break
+    python scripts/train_reinforce.py --demand "$demand" --action-space discrete --episodes 3000 --seed 0 || break
+    python scripts/train_actor_critic.py --demand "$demand" --action-space continuous --episodes 3000 --seed 0 || break
+    python scripts/train_actor_critic.py --demand "$demand" --action-space discrete --episodes 3000 --seed 0 || break
+    python scripts/compare_policies.py --demand "$demand" --eval-episodes 20 --eval-seed 10000 --require-all || break
+done
 ```
 
 비교 지표는 계획서와 같다. 누적 이익, 충족률, 미충족, 평균 재고, sentiment.
 
-- 급변 수요: `outputs/policy_comparison_vanilla.csv`
-- 정상 수요: `outputs/stationary/policy_comparison_vanilla.csv`
+- 급변 수요: `outputs/policy_comparison_7.csv`
+- 정상 수요: `outputs/stationary/policy_comparison_7.csv`
 - 새 체크포인트: 각 수요 폴더의 `reinforce_vanilla.pt` (이전 `reinforce.pt`와 호환되지 않음)
 
 ## 7. 이전 비교 결과 (가치 기준선 REINFORCE)
@@ -139,3 +146,7 @@ python scripts/compare_policies.py --demand stationary
 ## 8. 모델-free인지
 
 학습 코드는 수요 식, 리드타임 식, 보상 식을 풀어 발주량을 계산하지 않는다. `reset`/`step`이 준 관측과 보상만 보고 정책을 바꾼다. 원본 환경 안에서 돌아가는 모델-free 학습이다.
+
+## 동일한 이산 행동 공간에서 비교
+
+DQN 및 이산형 두 정책은 125개 발주 조합을 공유하고 초기에는 균등 탐험한다. 학습이 진행되면 ε-greedy와 Categorical 탐험은 다르게 변한다. 이산형과 연속형의 성능 차이는 행동 후보와 탐험 분포가 함께 바뀐 결과이므로 탐험 효과만 분리해 검증한 것은 아니다. AC는 연속/이산형에 동일한 entropy 계수를 사용하나 엔트로피의 정의와 크기는 다르다. 순수 REINFORCE는 entropy 보너스 없이 학습한다. 새 평가는 기본 학습 시드 1~3000과 겹치지 않는 환경 시드 10000~10019를 사용한다. 새 결과는 아직 측정하지 않았다.
